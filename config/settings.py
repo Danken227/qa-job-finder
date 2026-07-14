@@ -1,11 +1,12 @@
-MIN_UOP = 14000
+"""Ustalone kryteria raportu QA."""
+
+MIN_UOP = 14_000
 MIN_B2B = 100
 PREFERRED_B2B = 110
 
-LOCATIONS = ["Wrocław", "Remote"]
-KEYWORDS = [
-    "Manual QA",
-    "Software Tester",
-    "QA Engineer",
-    "Tester Oprogramowania"
-]
+MAX_REPORT_OFFERS = 10
+CANDIDATES_FOR_VERIFICATION = 30
+MIN_MATCH_SCORE = 10
+
+PREFERRED_LOCATION = "Wrocław"
+ALLOWED_WORK_MODES = ("Remote", "Wrocław")
