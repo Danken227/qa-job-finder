@@ -6,6 +6,7 @@ import re
 from dataclasses import replace
 
 from collectors.base import JobOffer
+from collectors.parsing import normalize_title
 from config.settings import (
     CANDIDATES_FOR_VERIFICATION,
     MIN_B2B,
@@ -41,6 +42,27 @@ MATCHING_SKILLS = (
     ("OpenAPI", 1),
     ("Playwright", 1),
 )
+
+
+def deduplicate_offers(offers: list[JobOffer]) -> list[JobOffer]:
+    """Usuwa duplikaty między portalami po firmie i znormalizowanym tytule."""
+
+    best: dict[tuple[str, str], JobOffer] = {}
+    for offer in offers:
+        key = (offer.company.casefold().strip(), normalize_title(offer.title))
+        existing = best.get(key)
+        if existing is None or _offer_richness(offer) > _offer_richness(existing):
+            best[key] = offer
+    return list(best.values())
+
+
+def _offer_richness(offer: JobOffer) -> tuple[bool, int, int, bool]:
+    return (
+        bool(offer.salary),
+        len(offer.skills),
+        len(offer.contract_types),
+        offer.source != "LinkedIn",
+    )
 
 
 def filter_offers(offers: list[JobOffer]) -> list[JobOffer]:

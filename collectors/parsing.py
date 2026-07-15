@@ -91,6 +91,16 @@ def extract_salary(text: str) -> str:
     return salary
 
 
+def normalize_title(title: str) -> str:
+    """Ujednolica tytuł do porównań (deduplikacja, fuzzy match w weryfikacji)."""
+
+    normalized = title.casefold()
+    normalized = re.sub(r"\([^)]*\)", "", normalized)
+    normalized = re.sub(r"\[[^\]]*\]", "", normalized)
+    normalized = re.sub(r"[^\w\s]", " ", normalized)
+    return " ".join(normalized.split())
+
+
 def direct_url(url: str) -> str:
     """Usuwa parametry śledzące, zostawiając stabilny adres konkretnej oferty."""
 

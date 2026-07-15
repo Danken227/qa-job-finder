@@ -4,7 +4,7 @@ from collectors.justjoinit import JustJoinItCollector
 from collectors.linkedin import LinkedInCollector
 from collectors.nofluffjobs import NoFluffJobsCollector
 from collectors.rocketjobs import RocketJobsCollector
-from filter import filter_offers
+from filter import deduplicate_offers, filter_offers
 from report import export
 from verification import verify_offers
 
@@ -30,13 +30,19 @@ def main() -> None:
     if not collected:
         raise RuntimeError("Żadne źródło nie zwróciło ofert.")
 
+    before_dedup = len(collected)
+    collected = deduplicate_offers(collected)
+    if before_dedup != len(collected):
+        print(f"Deduplikacja: {before_dedup} → {len(collected)} unikalnych ofert.")
+
     candidates = filter_offers(collected)
     print(f"Po filtrach: {len(candidates)} ofert do sprawdzenia.")
 
-    verified = verify_offers(candidates)
-    excel_path, html_path = export(verified)
+    result = verify_offers(candidates)
+    excel_path, html_path = export(result.offers)
 
-    print(f"Zweryfikowano i zapisano: {len(verified)} ofert.")
+    print(f"Zweryfikowano: {result.passed}, odrzucono: {result.rejected}, obcięto limitem: {result.trimmed}")
+    print(f"Zapisano w raporcie: {len(result.offers)} ofert.")
     print(f"Excel: {excel_path}")
     print(f"HTML:  {html_path}")
 
