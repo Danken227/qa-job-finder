@@ -36,7 +36,14 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
             allow_redirects=True,
         )
         if response.status_code != 200 or "/job-offer/" not in response.url:
-            return replace(offer, verified=False)
+            if offer.source == "LinkedIn" and "/jobs/view/" in response.url:
+                pass
+            elif offer.source == "No Fluff Jobs" and "/pl/job/" in response.url:
+                pass
+            elif offer.source == "RocketJobs" and "/oferta-pracy/" in response.url:
+                pass
+            else:
+                return replace(offer, verified=False)
 
         soup = BeautifulSoup(response.text, "lxml")
         page_title = soup.find("h1")
@@ -44,6 +51,14 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
         normalized_page = title_text.casefold()
         normalized_offer = offer.title.casefold()
         page_text = soup.get_text(" ", strip=True).casefold()
+        closed_markers = (
+            "no longer accepting applications",
+            "nie przyjmujemy już aplikacji",
+            "oferta wygasła",
+            "offer expired",
+        )
+        if any(marker in page_text for marker in closed_markers):
+            return replace(offer, verified=False)
         is_same_offer = bool(normalized_page) and (
             normalized_offer in normalized_page or normalized_page in normalized_offer
         )

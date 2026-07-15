@@ -11,8 +11,9 @@ Program tworzy raport ofert QA dopasowanych do następującego profilu:
 - B2B: minimum 100 zł/h, z priorytetem od 110 zł/h;
 - oferty bez widełek pozostają w raporcie.
 
-Obecnie program pobiera oferty z kategorii Testing na JustJoinIT. Każdy link jest
-otwierany i sprawdzany przed dodaniem do raportu.
+Program pobiera publiczne oferty z JustJoinIT, No Fluff Jobs, RocketJobs oraz
+publicznych wyników LinkedIn Jobs. Każdy link jest otwierany i sprawdzany przed
+dodaniem do raportu.
 
 ## Uruchomienie
 

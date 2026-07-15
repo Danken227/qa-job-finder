@@ -26,9 +26,13 @@ TITLE_KEYWORDS = (
 AUTOMATION_FIRST_TITLES = ("automat", "automation", "sdet")
 SENIORITY_OR_LEADERSHIP_TITLES = ("architect", "principal", "manager", "lead", "head of")
 MATCHING_SKILLS = (
+    ("Manual Testing", 3),
+    ("Manual tests", 3),
     ("SQL", 3),
     ("Postman", 3),
     ("REST API", 3),
+    ("API Testing", 2),
+    ("API testing", 2),
     ("Jira", 2),
     ("Confluence", 1),
     ("ERP", 4),
