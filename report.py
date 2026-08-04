@@ -12,15 +12,17 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from collectors.base import JobOffer
 
 
-REPORTS_DIR = Path("reports")
-EXCEL_PATH = REPORTS_DIR / "report.xlsx"
-HTML_PATH = REPORTS_DIR / "report.html"
-
-
-def export(offers: list[JobOffer]) -> tuple[Path, Path]:
+def export(
+    offers: list[JobOffer],
+    reports_dir: Path | str = "reports",
+    basename: str = "report",
+) -> tuple[Path, Path]:
     """Tworzy dwa raporty z działającymi, bezpośrednimi linkami."""
 
-    REPORTS_DIR.mkdir(exist_ok=True)
+    output_dir = Path(reports_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    excel_path = output_dir / f"{basename}.xlsx"
+    html_path = output_dir / f"{basename}.html"
     rows = [_to_row(offer) for offer in offers]
     columns = [
         "Priorytet",
@@ -37,10 +39,10 @@ def export(offers: list[JobOffer]) -> tuple[Path, Path]:
         "Link",
     ]
     dataframe = pd.DataFrame(rows, columns=columns)
-    dataframe.to_excel(EXCEL_PATH, index=False)
-    _format_excel(EXCEL_PATH)
-    _write_html(rows, columns)
-    return EXCEL_PATH, HTML_PATH
+    dataframe.to_excel(excel_path, index=False)
+    _format_excel(excel_path)
+    _write_html(rows, columns, html_path)
+    return excel_path, html_path
 
 
 def _to_row(offer: JobOffer) -> dict[str, str]:
@@ -89,7 +91,7 @@ def _format_excel(path: Path) -> None:
     workbook.save(path)
 
 
-def _write_html(rows: list[dict[str, str]], columns: list[str]) -> None:
+def _write_html(rows: list[dict[str, str]], columns: list[str], html_path: Path) -> None:
     header = "".join(f"<th>{escape(column)}</th>" for column in columns)
     if rows:
         table_rows = []
@@ -108,7 +110,7 @@ def _write_html(rows: list[dict[str, str]], columns: list[str]) -> None:
         body = '<tr><td colspan="12">Brak ofert spełniających ustawione kryteria.</td></tr>'
         summary = "Brak zweryfikowanych ofert"
 
-    HTML_PATH.write_text(
+    html_path.write_text(
         f"""<!doctype html>
 <html lang="pl">
 <head>

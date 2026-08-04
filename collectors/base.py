@@ -16,6 +16,7 @@ class JobOffer:
     url: str
     source: str
     skills: tuple[str, ...] = ()
+    company_categories: tuple[str, ...] = ()
     expires_in: str = ""
     match_score: int = 0
     match_reasons: tuple[str, ...] = field(default_factory=tuple)

@@ -102,19 +102,27 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
             timeout=20,
             allow_redirects=True,
         )
-        if response.status_code != 200 or "/job-offer/" not in response.url:
-            if offer.source == "LinkedIn" and "/jobs/view/" in response.url:
-                pass
-            elif offer.source == "No Fluff Jobs" and "/pl/job/" in response.url:
-                pass
-            elif offer.source == "RocketJobs" and "/oferta-pracy/" in response.url:
-                pass
-            else:
-                return replace(offer, verified=False)
+        if response.status_code != 200:
+            return replace(offer, verified=False)
+
+        is_company_career = offer.source.startswith("Kariera:") or offer.source == "Strona kariery"
+        known_offer_path = (
+            "/job-offer/" in response.url
+            or offer.source == "LinkedIn" and "/jobs/view/" in response.url
+            or offer.source == "No Fluff Jobs" and "/pl/job/" in response.url
+            or offer.source == "RocketJobs" and "/oferta-pracy/" in response.url
+        )
+        if not is_company_career and not known_offer_path:
+            return replace(offer, verified=False)
 
         soup = BeautifulSoup(response.text, "lxml")
         page_title = soup.find("h1")
         title_text = page_title.get_text(" ", strip=True) if page_title else ""
+        if not title_text:
+            og_title = soup.select_one('meta[property="og:title"]')
+            title_text = og_title.get("content", "") if og_title else ""
+        if not title_text and soup.title:
+            title_text = soup.title.get_text(" ", strip=True)
         page_text = soup.get_text(" ", strip=True).casefold()
         closed_markers = (
             "no longer accepting applications",
