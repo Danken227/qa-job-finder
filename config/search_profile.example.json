@@ -1,0 +1,27 @@
+{
+  "location": {
+    "preferred_city": "Twoje miasto",
+    "preferred_city_slug": "twoje-miasto",
+    "allow_remote": true,
+    "allow_hybrid_outside_preferred_city": false
+  },
+  "salary": {
+    "min_uop_gross_pln": 0,
+    "min_b2b_hourly_pln": 0,
+    "preferred_b2b_hourly_pln": 0,
+    "include_offers_without_salary": true
+  },
+  "job_titles": {
+    "include": ["qa", "tester"],
+    "automation_first_exclude": ["automation", "sdet"],
+    "seniority_exclude": ["manager", "lead"]
+  },
+  "matching_skills": [
+    {"name": "Przykładowa umiejętność", "points": 1}
+  ],
+  "filtering": {
+    "min_match_score": 1,
+    "candidates_for_verification": 30,
+    "max_report_offers": 30
+  }
+}

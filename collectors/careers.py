@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -132,6 +132,11 @@ class CareerPagesCollector(BaseCollector):
                 self.summary.scanned_companies += 1
 
         unique_offers = list({offer.url: offer for offer in offers}.values())
+        # Strony karier często podają na liście tylko tytuł stanowiska. Pobranie
+        # konkretnej oferty pozwala filtrować po faktycznej lokalizacji,
+        # umowie, wynagrodzeniu i wymaganych umiejętnościach.
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            unique_offers = list(executor.map(self._enrich_offer, unique_offers))
         self.summary.discovered_offers = len(unique_offers)
         return unique_offers
 
@@ -188,6 +193,40 @@ class CareerPagesCollector(BaseCollector):
 
         return offers
 
+    def _enrich_offer(self, offer: JobOffer) -> JobOffer:
+        try:
+            response = requests.get(offer.url, headers=REQUEST_HEADERS, timeout=20)
+            response.raise_for_status()
+        except requests.RequestException:
+            # Link zostanie jeszcze zweryfikowany przed dodaniem do raportu.
+            # Nie usuwamy go na tym etapie tylko dlatego, że nie udało się
+            # pobrać dodatkowych szczegółów.
+            return offer
+
+        soup = BeautifulSoup(response.text, "lxml")
+        page_text = " ".join(soup.stripped_strings)
+        heading = soup.find("h1")
+        title = heading.get_text(" ", strip=True) if heading else offer.title
+        work_mode = normalize_work_mode(page_text)
+        location = _extract_location(page_text, Company(
+            name=offer.company,
+            careers_url=offer.url,
+            categories=offer.company_categories,
+        ))
+        skills = tuple(dict.fromkeys((*offer.skills, *extract_skills(page_text))))
+        contracts = normalize_contracts(page_text) or offer.contract_types
+        salary = extract_salary(page_text) or offer.salary
+
+        return replace(
+            offer,
+            title=_clean_title(title) or offer.title,
+            location=location if location != "Nie podano" else offer.location,
+            work_mode=work_mode if work_mode != "Nie podano" else offer.work_mode,
+            contract_types=contracts,
+            salary=salary,
+            skills=skills,
+        )
+
 
 def _has_relevant_title(text: str) -> bool:
     normalized = text.casefold().replace("-", " ").replace("_", " ")
@@ -228,10 +267,16 @@ def _link_context(anchor) -> str:
 
 
 def _extract_location(context: str, company: Company) -> str:
-    if "wrocław" in context.casefold() or "wroclaw" in context.casefold():
-        return "Wrocław"
-    if company.location_hint:
-        return company.location_hint
+    from config.profile import PROFILE
+
+    city = PROFILE.preferred_city
+    normalized_context = context.casefold()
+    if city.casefold() in normalized_context:
+        return city
+    # Wersja bez polskich znaków: przydatna dla Wrocławia, Łodzi itd.
+    ascii_city = city.translate(str.maketrans("ąćęłńóśźż", "acelnoszz"))
+    if ascii_city.casefold() in normalized_context:
+        return city
     return "Nie podano"
 
 

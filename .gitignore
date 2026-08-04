@@ -2,3 +2,4 @@ __pycache__/
 reports/
 .venv/
 *.pyc
+config/search_profile.json

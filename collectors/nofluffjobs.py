@@ -9,14 +9,11 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from config.profile import PROFILE
 from .base import BaseCollector, JobOffer
 from .parsing import extract_salary, extract_skills, normalize_contracts, normalize_work_mode
 
 
-LISTING_URLS = (
-    "https://nofluffjobs.com/pl/Wroc%C5%82aw/QA",
-    "https://nofluffjobs.com/pl/remote/QA",
-)
 BASE_URL = "https://nofluffjobs.com"
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
@@ -32,7 +29,11 @@ class NoFluffJobsCollector(BaseCollector):
 
     def collect(self) -> list[JobOffer]:
         offers: dict[str, JobOffer] = {}
-        for listing_url in LISTING_URLS:
+        listing_urls = [f"{BASE_URL}/pl/{PROFILE.preferred_city}/QA"]
+        if PROFILE.allow_remote:
+            listing_urls.append(f"{BASE_URL}/pl/remote/QA")
+
+        for listing_url in listing_urls:
             response = self.session.get(listing_url, headers=REQUEST_HEADERS, timeout=30)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
@@ -62,7 +63,7 @@ class NoFluffJobsCollector(BaseCollector):
         company = company_element.get_text(" ", strip=True)
         salary_element = card.select_one("[data-cy='salary ranges on the job offer listing']")
         salary = extract_salary(salary_element.get_text(" ", strip=True) if salary_element else "")
-        location = "Wrocław" if "wrocław" in card_text.casefold() else "Remote"
+        location = PROFILE.preferred_city if PROFILE.preferred_city.casefold() in card_text.casefold() else "Remote"
 
         return JobOffer(
             company=company,

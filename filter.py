@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from collectors.base import JobOffer
 from collectors.parsing import normalize_title
@@ -14,34 +14,24 @@ from config.settings import (
     MIN_UOP,
     PREFERRED_B2B,
 )
+from config.profile import PROFILE
 
 
-TITLE_KEYWORDS = (
-    "manual",
-    "tester",
-    "qa",
-    "quality assurance",
-    "test engineer",
-    "software tester",
-)
-AUTOMATION_FIRST_TITLES = ("automat", "automation", "sdet")
-SENIORITY_OR_LEADERSHIP_TITLES = ("architect", "principal", "manager", "lead", "head of")
-MATCHING_SKILLS = (
-    ("Manual Testing", 3),
-    ("Manual tests", 3),
-    ("SQL", 3),
-    ("Postman", 3),
-    ("REST API", 3),
-    ("API Testing", 2),
-    ("API testing", 2),
-    ("Jira", 2),
-    ("Confluence", 1),
-    ("ERP", 4),
-    ("WMS", 4),
-    ("Swagger", 1),
-    ("OpenAPI", 1),
-    ("Playwright", 1),
-)
+TITLE_KEYWORDS = PROFILE.title_keywords
+AUTOMATION_FIRST_TITLES = PROFILE.automation_first_titles
+SENIORITY_OR_LEADERSHIP_TITLES = PROFILE.excluded_seniority_titles
+MATCHING_SKILLS = PROFILE.matching_skills
+
+
+@dataclass(frozen=True, slots=True)
+class FilterResult:
+    offers: list[JobOffer]
+    rejected_title: int = 0
+    rejected_automation: int = 0
+    rejected_seniority: int = 0
+    rejected_location: int = 0
+    rejected_salary: int = 0
+    rejected_score: int = 0
 
 
 def deduplicate_offers(offers: list[JobOffer]) -> list[JobOffer]:
@@ -72,21 +62,37 @@ def filter_offers(offers: list[JobOffer]) -> list[JobOffer]:
     a oferty bez podanego wynagrodzenia zostają w puli.
     """
 
+    return filter_offers_with_diagnostics(offers).offers
+
+
+def filter_offers_with_diagnostics(offers: list[JobOffer]) -> FilterResult:
+    """Filtruje oferty i zwraca liczby odrzuceń według powodu."""
+
     shortlisted: list[JobOffer] = []
+    rejected_title = rejected_automation = rejected_seniority = 0
+    rejected_location = rejected_salary = rejected_score = 0
     for offer in offers:
         if not _has_relevant_title(offer.title):
+            rejected_title += 1
             continue
-        if _is_automation_first(offer.title) or _is_out_of_scope_seniority(offer.title):
+        if _is_automation_first(offer.title):
+            rejected_automation += 1
+            continue
+        if _is_out_of_scope_seniority(offer.title):
+            rejected_seniority += 1
             continue
         if not _is_allowed_location(offer):
+            rejected_location += 1
             continue
 
         salary_ok, salary_assessment = _assess_salary(offer)
         if not salary_ok:
+            rejected_salary += 1
             continue
 
         score, reasons = _score_offer(offer, salary_assessment)
         if score < MIN_MATCH_SCORE:
+            rejected_score += 1
             continue
         shortlisted.append(
             replace(
@@ -97,11 +103,20 @@ def filter_offers(offers: list[JobOffer]) -> list[JobOffer]:
             )
         )
 
-    return sorted(
+    result = sorted(
         shortlisted,
         key=lambda item: (item.match_score, item.work_mode.casefold() == "remote"),
         reverse=True,
     )[:CANDIDATES_FOR_VERIFICATION]
+    return FilterResult(
+        offers=result,
+        rejected_title=rejected_title,
+        rejected_automation=rejected_automation,
+        rejected_seniority=rejected_seniority,
+        rejected_location=rejected_location,
+        rejected_salary=rejected_salary,
+        rejected_score=rejected_score,
+    )
 
 
 def _has_relevant_title(title: str) -> bool:
@@ -120,12 +135,16 @@ def _is_out_of_scope_seniority(title: str) -> bool:
 
 
 def _is_allowed_location(offer: JobOffer) -> bool:
-    return offer.work_mode.casefold() == "remote" or "wrocław" in offer.location.casefold()
+    if PROFILE.allow_remote and offer.work_mode.casefold() == "remote":
+        return True
+    if PROFILE.preferred_city.casefold() in offer.location.casefold():
+        return True
+    return PROFILE.allow_hybrid_outside_preferred_city and offer.work_mode.casefold() == "hybrid"
 
 
 def _assess_salary(offer: JobOffer) -> tuple[bool, str]:
     if not offer.salary:
-        return True, "Brak widełek — pokaż ofertę"
+        return PROFILE.include_offers_without_salary, "Brak widełek — pokaż ofertę"
 
     if "PLN" not in offer.salary.upper():
         return True, "Widełki w walucie obcej — do indywidualnej oceny"
@@ -188,9 +207,9 @@ def _score_offer(offer: JobOffer, salary_assessment: str) -> tuple[int, list[str
     if offer.work_mode.casefold() == "remote":
         score += 3
         reasons.append("100% remote")
-    elif "wrocław" in offer.location.casefold():
+    elif PROFILE.preferred_city.casefold() in offer.location.casefold():
         score += 2
-        reasons.append("Wrocław")
+        reasons.append(PROFILE.preferred_city)
 
     if salary_assessment.startswith("B2B ok") or salary_assessment.startswith("UoP ok"):
         score += 2

@@ -1,12 +1,12 @@
-"""Ustalone kryteria raportu QA."""
+"""Kompatybilne nazwy ustawień wczytywane z prywatnego profilu."""
 
-MIN_UOP = 14_000
-MIN_B2B = 100
-PREFERRED_B2B = 110
+from config.profile import PROFILE
 
-MAX_REPORT_OFFERS = 30
-CANDIDATES_FOR_VERIFICATION = 30
-MIN_MATCH_SCORE = 10
 
-PREFERRED_LOCATION = "Wrocław"
-ALLOWED_WORK_MODES = ("Remote", "Wrocław")
+MIN_UOP = PROFILE.min_uop_gross_pln
+MIN_B2B = PROFILE.min_b2b_hourly_pln
+PREFERRED_B2B = PROFILE.preferred_b2b_hourly_pln
+MAX_REPORT_OFFERS = PROFILE.max_report_offers
+CANDIDATES_FOR_VERIFICATION = PROFILE.candidates_for_verification
+MIN_MATCH_SCORE = PROFILE.min_match_score
+PREFERRED_LOCATION = PROFILE.preferred_city

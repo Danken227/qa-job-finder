@@ -12,19 +12,13 @@ from dataclasses import replace
 import requests
 from bs4 import BeautifulSoup
 
+from config.profile import PROFILE
 from .base import BaseCollector, JobOffer
 from .parsing import direct_url, extract_salary, extract_skills, normalize_contracts, normalize_work_mode
 
 
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-SEARCHES = (
-    ("manual qa", "Wrocław, Poland", False),
-    ("qa engineer", "Wrocław, Poland", False),
-    ("software tester", "Wrocław, Poland", False),
-    ("manual qa", "Poland", True),
-    ("qa engineer", "Poland", True),
-    ("software tester", "Poland", True),
-)
+SEARCH_KEYWORDS = ("manual qa", "qa engineer", "software tester")
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
@@ -39,7 +33,11 @@ class LinkedInCollector(BaseCollector):
 
     def collect(self) -> list[JobOffer]:
         offers: dict[str, JobOffer] = {}
-        for keywords, location, remote_only in SEARCHES:
+        searches = [(keywords, f"{PROFILE.preferred_city}, Poland", False) for keywords in SEARCH_KEYWORDS]
+        if PROFILE.allow_remote:
+            searches.extend((keywords, "Poland", True) for keywords in SEARCH_KEYWORDS)
+
+        for keywords, location, remote_only in searches:
             params = {"keywords": keywords, "location": location, "start": 0}
             if remote_only:
                 params["f_WT"] = "2"

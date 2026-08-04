@@ -1,15 +1,7 @@
 # QA Job Finder
 
-Program tworzy raport ofert QA dopasowanych do następującego profilu:
-
-- Wrocław lub praca w 100% zdalna;
-- Manual QA / Tester / QA Engineer / Test Engineer;
-- SQL, REST API, Postman, Jira i Confluence jako silne atuty;
-- ERP/WMS jako dodatkowy plus;
-- Playwright jest akceptowany, jeśli oferta nie jest stanowiskiem stricte automatyzacyjnym;
-- UoP: minimum 14 000 zł brutto;
-- B2B: minimum 100 zł/h, z priorytetem od 110 zł/h;
-- oferty bez widełek pozostają w raporcie.
+Program tworzy raport ofert QA według lokalnego profilu wyszukiwania. Twój profil,
+wynagrodzenie, lokalizacja i umiejętności nie są częścią repozytorium.
 
 `main.py` pobiera publiczne oferty z JustJoinIT, No Fluff Jobs, RocketJobs oraz
 publicznych wyników LinkedIn Jobs. Każdy link jest otwierany i sprawdzany przed
@@ -21,6 +13,28 @@ miasto i adres strony kariery. Parser wykrywa widoczne linki do ofert QA oraz
 najpopularniejsze zewnętrzne systemy rekrutacyjne (ATS).
 
 ## Uruchomienie
+
+### Prywatny profil wyszukiwania
+
+Przed pierwszym uruchomieniem skopiuj szablon i uzupełnij go własnymi warunkami:
+
+```powershell
+Copy-Item config/search_profile.example.json config/search_profile.json
+```
+
+Edytuj wyłącznie `config/search_profile.json`. Plik zawiera:
+
+- `location` — miasto, jego wersję używaną w adresach portali, zgoda na remote i hybrydę poza miastem;
+- `salary` — minimalne i preferowane stawki oraz decyzję, czy zostawiać oferty bez widełek;
+- `job_titles` — stanowiska, które mają wejść do raportu, oraz tytuły do wykluczenia;
+- `matching_skills` — umiejętności i punkty wpływające na dopasowanie;
+- `filtering` — minimalny wynik oraz limity weryfikacji i raportu.
+
+`config/search_profile.json` jest ignorowany przez Git. Nie dodawaj go ręcznie do
+commita. Do repozytorium trafia tylko `config/search_profile.example.json`, który
+jest neutralnym szablonem bez Twoich danych.
+
+### Uruchamianie raportów
 
 ```powershell
 python -m pip install -r requirements.txt --user

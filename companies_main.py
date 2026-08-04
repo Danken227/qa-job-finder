@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from collectors.careers import CareerPagesCollector
-from filter import deduplicate_offers, filter_offers
+from filter import deduplicate_offers, filter_offers_with_diagnostics
 from report import export
 from verification import verify_offers
 
@@ -33,8 +33,16 @@ def main() -> None:
     )
     print(f"Oferty wykryte na stronach karier: {summary.discovered_offers}.")
 
-    candidates = filter_offers(deduplicate_offers(offers))
+    filtering = filter_offers_with_diagnostics(deduplicate_offers(offers))
+    candidates = filtering.offers
     print(f"Po filtrach: {len(candidates)} ofert do sprawdzenia.")
+    if not candidates and offers:
+        print(
+            "Odrzucono przez filtry: "
+            f"tytuł {filtering.rejected_title}, automatyzacja {filtering.rejected_automation}, "
+            f"poziom stanowiska {filtering.rejected_seniority}, lokalizacja {filtering.rejected_location}, "
+            f"wynagrodzenie {filtering.rejected_salary}, dopasowanie {filtering.rejected_score}."
+        )
     result = verify_offers(candidates)
     excel_path, html_path = export(result.offers, reports_dir="reports/companies", basename="company_report")
 

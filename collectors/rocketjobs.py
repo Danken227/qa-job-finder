@@ -7,14 +7,11 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+from config.profile import PROFILE
 from .base import BaseCollector, JobOffer
 from .parsing import extract_salary, extract_skills, normalize_contracts, normalize_work_mode
 
 
-LISTING_URLS = (
-    "https://rocketjobs.pl/oferty-pracy/wroclaw",
-    "https://rocketjobs.pl/oferty-pracy/praca-zdalna",
-)
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
@@ -29,7 +26,11 @@ class RocketJobsCollector(BaseCollector):
 
     def collect(self) -> list[JobOffer]:
         offers: dict[str, JobOffer] = {}
-        for listing_url in LISTING_URLS:
+        listing_urls = [f"https://rocketjobs.pl/oferty-pracy/{PROFILE.preferred_city_slug}"]
+        if PROFILE.allow_remote:
+            listing_urls.append("https://rocketjobs.pl/oferty-pracy/praca-zdalna")
+
+        for listing_url in listing_urls:
             response = self.session.get(listing_url, headers=REQUEST_HEADERS, timeout=30)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
