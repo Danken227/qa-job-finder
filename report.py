@@ -5,8 +5,9 @@ Gdy skonfigurowane są Arkusze Google (``config/sheets.json``), to one są
 jest kopią zapasową. Bez konfiguracji źródłem jest lokalny Excel.
 
 Plik Excel jest jednocześnie "trackerem": przy każdym uruchomieniu program
-wczytuje poprzednią wersję i przenosi to, co wpisałeś ręcznie - kolumny
-**Status** i **Notatka** oraz datę pierwszego wykrycia. Oferty, których nie
+wczytuje poprzednią wersję i przenosi to, co ustawiłeś ręcznie - kolumnę
+**Status** - oraz datę pierwszego wykrycia. Tytuł w kolumnie "Stanowisko" jest
+linkiem do oferty; kolumna "Link" jest ukryta (służy do rozpoznawania ofert). Oferty, których nie
 ma w bieżącym wyszukiwaniu, nie znikają - dostają "Nie" w kolumnie
 "W ostatnim wyszukiwaniu" (zamknięte, zmienione albo odfiltrowane).
 """
@@ -33,10 +34,12 @@ STATUSES = (STATUS_NEW, "Obejrzana", "CV wysłane", "Rozmowa", "Odrzucona", "Nie
 DONE_STATUSES = ("CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie")
 STATUS_ORDER = {status: index for index, status in enumerate(STATUSES)}
 
-USER_COLUMNS = ("Status", "Notatka")
+USER_COLUMNS = ("Status",)
+# Kolumna "Link" musi zostać (po niej rozpoznajemy oferty między uruchomieniami),
+# ale jest ukryta - link jest na tytule w kolumnie "Stanowisko".
+HIDDEN_COLUMNS = ("Link",)
 COLUMNS = (
     "Status",
-    "Notatka",
     "Priorytet",
     "Firma",
     "Stanowisko",
@@ -54,7 +57,7 @@ COLUMNS = (
     "Link",
 )
 WIDTHS = {
-    "Status": 16, "Notatka": 30, "Priorytet": 18, "Firma": 24, "Stanowisko": 40, "Lokalizacja": 22,
+    "Status": 16, "Priorytet": 18, "Firma": 24, "Stanowisko": 40, "Lokalizacja": 22,
     "Model pracy": 13, "Umowa": 18, "Wynagrodzenie": 24, "Ocena": 8, "Dlaczego pasuje": 36,
     "Ocena wynagrodzenia": 30, "Źródło": 18, "Pierwsze wykrycie": 13, "Ostatnio widziana": 13,
     "W ostatnim wyszukiwaniu": 12, "Link": 60,
@@ -127,7 +130,8 @@ def export(
     sheet_url = ""
     if store is not None:
         try:
-            store.write_rows(sheet_tab, COLUMNS, rows, STATUSES, DONE_STATUSES, STATUS_NEW)
+            store.write_rows(sheet_tab, COLUMNS, rows, STATUSES, DONE_STATUSES, STATUS_NEW,
+                             user_columns=USER_COLUMNS, hidden_columns=HIDDEN_COLUMNS)
             sheet_url = store.settings.url
         except Exception as error:  # noqa: BLE001 - lokalny Excel jest już zapisany
             warnings.append(f"Arkusze Google: nie udało się zapisać zakładki {sheet_tab} ({error}).")
@@ -223,11 +227,9 @@ def _merge(
         if old is not None and id(old) not in matched:
             matched.add(id(old))
             row["Status"] = old.get("Status") or STATUS_NEW
-            row["Notatka"] = old.get("Notatka", "")
             row["Pierwsze wykrycie"] = old.get("Pierwsze wykrycie") or today
         else:
             row["Status"] = STATUS_NEW
-            row["Notatka"] = ""
             row["Pierwsze wykrycie"] = today
             new_rows.append(row)
         row["Ostatnio widziana"] = today
@@ -266,7 +268,7 @@ def _write_excel(rows: list[dict[str, str]], path: Path) -> None:
     for row in rows:
         sheet.append([row.get(column, "") for column in COLUMNS])
 
-    sheet.freeze_panes = "C2"
+    sheet.freeze_panes = "B2"
     sheet.auto_filter.ref = sheet.dimensions
     header_fill = PatternFill("solid", fgColor="1F4E78")
     user_fill = PatternFill("solid", fgColor="C55A11")
@@ -278,12 +280,17 @@ def _write_excel(rows: list[dict[str, str]], path: Path) -> None:
         sheet.column_dimensions[get_column_letter(index)].width = WIDTHS[column]
 
     link_column = COLUMNS.index("Link") + 1
+    title_column = COLUMNS.index("Stanowisko") + 1
     for row_index in range(2, sheet.max_row + 1):
-        link = sheet.cell(row=row_index, column=link_column)
-        link.hyperlink = link.value
-        link.style = "Hyperlink"
+        url = sheet.cell(row=row_index, column=link_column).value
+        title = sheet.cell(row=row_index, column=title_column)
+        if url:
+            title.hyperlink = url
+            title.style = "Hyperlink"
         for cell in sheet[row_index]:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for column in HIDDEN_COLUMNS:
+        sheet.column_dimensions[get_column_letter(COLUMNS.index(column) + 1)].hidden = True
 
     # Lista rozwijana statusów - również dla kilkuset pustych wierszy poniżej.
     status_letter = get_column_letter(COLUMNS.index("Status") + 1)
@@ -317,7 +324,7 @@ def _write_excel(rows: list[dict[str, str]], path: Path) -> None:
 # --- HTML --------------------------------------------------------------------
 
 HTML_COLUMNS = ("Status", "Priorytet", "Firma", "Stanowisko", "Lokalizacja", "Model pracy", "Umowa",
-                "Wynagrodzenie", "Ocena", "Dlaczego pasuje", "Pierwsze wykrycie", "Link")
+                "Wynagrodzenie", "Ocena", "Dlaczego pasuje", "Pierwsze wykrycie")
 
 
 def _write_html(rows: list[dict[str, str]], html_path: Path, title: str, today: str, sheet_url: str = "") -> None:
@@ -379,8 +386,9 @@ def _html_table(rows: list[dict[str, str]], today: str, empty: str = "") -> str:
         cells = []
         for column in HTML_COLUMNS:
             value = str(row.get(column, ""))
-            if column == "Link":
-                cells.append(f'<td><a href="{escape(value, quote=True)}" target="_blank" rel="noopener">Otwórz ofertę</a></td>')
+            if column == "Stanowisko" and row.get("Link"):
+                link = escape(str(row["Link"]), quote=True)
+                cells.append(f'<td><a href="{link}" target="_blank" rel="noopener">{escape(value)}</a></td>')
             else:
                 cells.append(f"<td>{escape(value)}</td>")
         css = ' class="new"' if row.get("Pierwsze wykrycie") == today and row.get("Status") == STATUS_NEW else ""

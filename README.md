@@ -20,15 +20,12 @@ przejdzie filtry i kontrolę linków, raport będzie krótszy od limitu.
 
 ## Lista ofert w Excelu (statusy)
 
-Plik `.xlsx` każdego raportu to trwała lista ofert. W pomarańczowych kolumnach
-wpisujesz swoje informacje:
+Plik `.xlsx` każdego raportu to trwała lista ofert. W pomarańczowej kolumnie
+**Status** wybierasz z listy: Nowa / Obejrzana / CV wysłane / Rozmowa /
+Odrzucona / Nie interesuje mnie. Tytuł w kolumnie **Stanowisko** jest linkiem
+do oferty (kolumna „Link” jest ukryta — program rozpoznaje po niej oferty).
 
-- **Status** — lista rozwijana: Nowa / Obejrzana / CV wysłane / Rozmowa /
-  Odrzucona / Nie interesuje mnie;
-- **Notatka** — dowolny tekst.
-
-Przy kolejnym uruchomieniu program wczytuje poprzedni plik i przenosi statusy
-i notatki (oferty dopasowuje po linku, a gdy link się zmieni — po firmie
+Przy kolejnym uruchomieniu program wczytuje poprzedni plik i przenosi statusy (oferty dopasowuje po linku, a gdy link się zmieni — po firmie
 i tytule). Nowe oferty dostają status „Nowa” (zielone tło) i trafiają na
 górę. Oferty z wysłanym CV, odrzucone itp. są wyszarzone. Oferty, których nie
 ma w bieżącym wyszukiwaniu, nie są usuwane — mają „Nie” w kolumnie „W ostatnim

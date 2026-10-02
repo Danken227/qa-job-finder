@@ -76,34 +76,78 @@ class SheetStore:
         ]
 
     def write_rows(self, tab: str, columns: tuple[str, ...], rows: list[dict[str, str]],
-                   statuses: tuple[str, ...], done_statuses: tuple[str, ...], new_status: str) -> None:
-        worksheet = self._worksheet(tab, columns, statuses, done_statuses, new_status)
+                   statuses: tuple[str, ...], done_statuses: tuple[str, ...], new_status: str,
+                   user_columns: tuple[str, ...] = ("Status",), hidden_columns: tuple[str, ...] = ()) -> None:
+        layout = _Layout(columns, statuses, done_statuses, new_status, user_columns, hidden_columns)
+        worksheet = self._worksheet(tab, layout)
         values = [list(columns)] + [[str(row.get(column, "") or "") for column in columns] for row in rows]
         if worksheet.row_count < len(values) + 100:
             worksheet.resize(rows=len(values) + 500)
+        # Czyścimy całą szerokość - po zmianie układu stare kolumny też mają zniknąć.
+        worksheet.batch_clear([f"A2:{_column_letter(max(worksheet.col_count, len(columns)))}{worksheet.row_count}"])
         # RAW: tytuł zaczynający się od "=" czy "+" nie zostanie potraktowany jak formuła.
-        worksheet.batch_clear([f"A2:{_column_letter(len(columns))}{worksheet.row_count}"])
         worksheet.update(values=values, range_name="A1", value_input_option="RAW")
+        self._link_titles(worksheet, columns, rows)
 
-    def _worksheet(self, tab, columns, statuses, done_statuses, new_status):
+    def _link_titles(self, worksheet, columns: tuple[str, ...], rows: list[dict[str, str]]) -> None:
+        """Tytuł w kolumnie "Stanowisko" jako klikalny link do oferty."""
+
+        if "Stanowisko" not in columns or "Link" not in columns or not rows:
+            return
+        title_index = columns.index("Stanowisko")
+        cells = []
+        for row in rows:
+            title, url = str(row.get("Stanowisko") or ""), str(row.get("Link") or "")
+            cell: dict = {"userEnteredValue": {"stringValue": title}}
+            if title and url.startswith("http"):
+                # Link na całym tekście; każdy zapis ustawia go od nowa dla
+                # każdego wiersza, więc po przesunięciu wierszy nie zostaje stary.
+                cell["textFormatRuns"] = [{"startIndex": 0, "format": {"link": {"uri": url}}}]
+            cells.append({"values": [cell]})
+        self.spreadsheet.batch_update({"requests": [{"updateCells": {
+            "range": {"sheetId": worksheet.id, "startRowIndex": 1, "endRowIndex": 1 + len(rows),
+                      "startColumnIndex": title_index, "endColumnIndex": title_index + 1},
+            "rows": cells,
+            "fields": "userEnteredValue,textFormatRuns",
+        }}]})
+
+    def _worksheet(self, tab: str, layout: "_Layout"):
         try:
-            return self.spreadsheet.worksheet(tab)
+            worksheet = self.spreadsheet.worksheet(tab)
         except self._gspread.WorksheetNotFound:
-            pass
-        worksheet = self.spreadsheet.add_worksheet(title=tab, rows=INITIAL_ROWS, cols=len(columns))
-        self._format(worksheet, columns, statuses, done_statuses, new_status)
-        # Domyślna, pusta zakładka "Arkusz1" / "Sheet1" tylko przeszkadza.
-        for sheet in self.spreadsheet.worksheets():
-            if sheet.title in ("Arkusz1", "Sheet1") and not any(sheet.get_all_values()):
-                self.spreadsheet.del_worksheet(sheet)
+            worksheet = self.spreadsheet.add_worksheet(title=tab, rows=INITIAL_ROWS, cols=len(layout.columns))
+            self._format(worksheet, layout)
+            # Domyślna, pusta zakładka "Arkusz1" / "Sheet1" tylko przeszkadza.
+            for sheet in self.spreadsheet.worksheets():
+                if sheet.title in ("Arkusz1", "Sheet1") and not any(sheet.get_all_values()):
+                    self.spreadsheet.del_worksheet(sheet)
+            return worksheet
+
+        if worksheet.row_values(1) != list(layout.columns):
+            # Zmienił się układ kolumn (np. usunięta "Notatka") - reguły kolorów
+            # odwołują się do liter kolumn, więc formatowanie trzeba założyć od nowa.
+            self._reset_format(worksheet, len(layout.columns))
+            self._format(worksheet, layout)
         return worksheet
 
-    def _format(self, worksheet, columns, statuses, done_statuses, new_status) -> None:
+    def _reset_format(self, worksheet, column_count: int) -> None:
+        meta = self.spreadsheet.fetch_sheet_metadata({"fields": "sheets(properties(sheetId),conditionalFormats)"})
+        rules = next((len(sheet.get("conditionalFormats", [])) for sheet in meta["sheets"]
+                      if sheet["properties"]["sheetId"] == worksheet.id), 0)
+        requests = [{"deleteConditionalFormatRule": {"sheetId": worksheet.id, "index": 0}} for _ in range(rules)]
+        requests.append({"clearBasicFilter": {"sheetId": worksheet.id}})
+        self.spreadsheet.batch_update({"requests": requests})
+        worksheet.batch_clear([f"A1:{_column_letter(max(worksheet.col_count, column_count))}1"])
+        if worksheet.col_count > column_count:
+            worksheet.resize(cols=column_count)
+
+    def _format(self, worksheet, layout: "_Layout") -> None:
+        columns = layout.columns
         sheet_id = worksheet.id
         status_index = columns.index("Status")
         active_letter = _column_letter(columns.index("W ostatnim wyszukiwaniu") + 1)
         status_letter = _column_letter(status_index + 1)
-        user_columns = {columns.index(name) for name in ("Status", "Notatka") if name in columns}
+        user_columns = {columns.index(name) for name in layout.user_columns if name in columns}
         data_range = {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": INITIAL_ROWS,
                       "startColumnIndex": 0, "endColumnIndex": len(columns)}
 
@@ -117,20 +161,20 @@ class SheetStore:
 
         requests = [
             {"updateSheetProperties": {
-                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1, "frozenColumnCount": 2}},
+                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1, "frozenColumnCount": 1}},
                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}},
             {"setDataValidation": {
                 "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": INITIAL_ROWS,
                           "startColumnIndex": status_index, "endColumnIndex": status_index + 1},
                 "rule": {"condition": {"type": "ONE_OF_LIST",
-                                       "values": [{"userEnteredValue": status} for status in statuses]},
+                                       "values": [{"userEnteredValue": status} for status in layout.statuses]},
                          "showCustomUi": True, "strict": False}}},
             {"setBasicFilter": {"filter": {"range": {"sheetId": sheet_id, "startRowIndex": 0,
                                                      "startColumnIndex": 0, "endColumnIndex": len(columns)}}}},
-            rule(f'=${status_letter}2="{new_status}"', {"backgroundColor": _rgb("E2EFDA")}),
+            rule(f'=${status_letter}2="{layout.new_status}"', {"backgroundColor": _rgb("E2EFDA")}),
             *(rule(f'=${status_letter}2="{status}"',
                    {"backgroundColor": _rgb("EDEDED"), "textFormat": {"foregroundColor": _rgb("808080")}})
-              for status in done_statuses),
+              for status in layout.done_statuses),
             # Dodawana jako ostatnia z index=0, więc ma najwyższy priorytet.
             rule(f'=${active_letter}2="Nie"',
                  {"textFormat": {"foregroundColor": _rgb("A6A6A6"), "strikethrough": True}}),
@@ -146,12 +190,24 @@ class SheetStore:
                 "fields": "userEnteredFormat(backgroundColor,textFormat,wrapStrategy,verticalAlignment)"}})
             requests.append({"updateDimensionProperties": {
                 "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": index, "endIndex": index + 1},
-                "properties": {"pixelSize": COLUMN_PIXELS.get(column, 120)}, "fields": "pixelSize"}})
+                "properties": {"pixelSize": COLUMN_PIXELS.get(column, 120),
+                               "hiddenByUser": column in layout.hidden_columns},
+                "fields": "pixelSize,hiddenByUser"}})
         self.spreadsheet.batch_update({"requests": requests})
 
 
+@dataclass(frozen=True, slots=True)
+class _Layout:
+    columns: tuple[str, ...]
+    statuses: tuple[str, ...]
+    done_statuses: tuple[str, ...]
+    new_status: str
+    user_columns: tuple[str, ...]
+    hidden_columns: tuple[str, ...]
+
+
 COLUMN_PIXELS = {
-    "Status": 130, "Notatka": 220, "Firma": 170, "Stanowisko": 300, "Lokalizacja": 160,
+    "Status": 130, "Firma": 170, "Stanowisko": 300, "Lokalizacja": 160,
     "Dlaczego pasuje": 240, "Ocena wynagrodzenia": 200, "Wynagrodzenie": 170, "Link": 320,
 }
 

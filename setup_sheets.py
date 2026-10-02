@@ -14,7 +14,7 @@ import portals_main
 import public_main
 import sheets
 from pipeline import configure_console
-from report import COLUMNS, DONE_STATUSES, STATUS_NEW, STATUSES, _read_previous
+from report import COLUMNS, DONE_STATUSES, HIDDEN_COLUMNS, STATUS_NEW, STATUSES, USER_COLUMNS, _read_previous
 
 REPORTS = (
     (portals_main.SHEET_TAB, portals_main.REPORTS_DIR, portals_main.BASENAME),
@@ -53,7 +53,8 @@ def main() -> None:
             continue
         local = _read_previous(Path(reports_dir) / f"{basename}.xlsx")
         rows = [{column: row.get(column, "") for column in COLUMNS} for row in local]
-        store.write_rows(tab, COLUMNS, rows, STATUSES, DONE_STATUSES, STATUS_NEW)
+        store.write_rows(tab, COLUMNS, rows, STATUSES, DONE_STATUSES, STATUS_NEW,
+                         user_columns=USER_COLUMNS, hidden_columns=HIDDEN_COLUMNS)
         print(f"- {tab}: utworzono, przeniesiono {len(rows)} ofert z lokalnego Excela.")
     print(f"Gotowe: {settings.url}")
 
