@@ -78,3 +78,27 @@ def test_json_ld_job_posting():
     assert json_ld_location(posting) == "Wrocław, PL"
     assert json_ld_work_mode(posting) == "Remote"
     assert json_ld_salary(posting) == "8000 - 11000 PLN /month"
+
+
+def test_mobile_apps_are_not_mobile_work_mode():
+    from collectors.parsing import normalize_work_mode
+
+    assert normalize_work_mode("Młodszy Tester Automatyzujący – aplikacje mobilne") == "Nie podano"
+    assert normalize_work_mode("Praca mobilna, Wrocław") == "Mobile"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Regresja (Asseco): hybryda z dniami zdalnymi to nie praca zdalna.
+        ("Praca w modelu hybrydowym (3 dni stacjonarnie, 2 dni zdalnie) w biurze w Gdyni", "Hybrid"),
+        ("Hybrid work, 2 days remote per week", "Hybrid"),
+        ("100% remote, hybrid optional in Warsaw", "Remote"),
+        ("Praca zdalna", "Remote"),
+        ("Praca stacjonarna w biurze", "Office"),
+    ],
+)
+def test_normalize_work_mode(text, expected):
+    from collectors.parsing import normalize_work_mode
+
+    assert normalize_work_mode(text) == expected

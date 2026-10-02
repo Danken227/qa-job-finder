@@ -93,8 +93,12 @@ def verify_offers(offers: list[JobOffer]) -> VerificationResult:
     )
 
 
-def page_description(html: str) -> str:
-    """Opis oferty ze strony: JSON-LD, a gdy jest skąpy - treść strony bez menu i stopki."""
+def page_description(html: str, title: str = "") -> str:
+    """Opis oferty ze strony: JSON-LD, a gdy jest skąpy - treść strony bez menu i stopki.
+
+    Treść strony bierzemy tylko, gdy jest na niej tytuł oferty - strona tylko-JS
+    to pusta ramka z menu, której tekst fałszowałby analizę.
+    """
 
     description = ""
     for posting in parse_json_ld_jobs(html):
@@ -103,13 +107,15 @@ def page_description(html: str) -> str:
             description = text
     if len(description.split()) < 80:
         text = main_text(BeautifulSoup(html, "lxml"))
+        if title and title.casefold()[:40] not in text.casefold():
+            text = ""
         if len(text) > len(description):
             description = text
     return " ".join(description.split())[:DESCRIPTION_LIMIT]
 
 
 def _with_description(offer: JobOffer, html: str, verified: bool) -> JobOffer:
-    description = page_description(html)
+    description = page_description(html, offer.title)
     if len(description) <= len(offer.description):
         description = offer.description
     return replace(offer, verified=verified, description=description)

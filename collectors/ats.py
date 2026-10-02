@@ -26,6 +26,7 @@ from config.profile import PROFILE
 from .base import JobOffer
 from .parsing import (
     contains_keyword,
+    extract_cities,
     extract_salary,
     extract_skills,
     fold_text,
@@ -201,6 +202,9 @@ def in_target_country(location: str) -> bool:
         return True
     aliases = COUNTRY_ALIASES.get(fold_text(PROFILE.country), (PROFILE.country,))
     if contains_keyword(location, aliases):
+        return True
+    # Same polskie miasta ("Gdynia") bez dopisku kraju.
+    if fold_text(PROFILE.country) == "poland" and extract_cities(location):
         return True
     return contains_keyword(location, REGION_MARKERS) and contains_keyword(location, ("remote", "zdalnie"))
 

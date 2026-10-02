@@ -43,3 +43,11 @@ def test_page_description_prefers_json_ld():
             '{"@type": "JobPosting", "title": "Tester", "description": "<p>' + words + '</p>"}'
             "</script><main>inna treść</main></body></html>")
     assert page_description(html).startswith("testy manualne")
+
+
+def test_page_description_ignores_js_shell_without_offer_title():
+    # Regresja (Asseco): pusta ramka strony tylko-JS z filtrem "Praca zdalna" w menu.
+    shell = "<html><body><main>Oferty pracy Filtry: Praca zdalna Praca hybrydowa Lokalizacja</main></body></html>"
+    assert page_description(shell, "Specjalista ds. Testów") == ""
+    offer_page = "<html><body><main>Specjalista ds. Testów Gdańsk, praca hybrydowa. Wymagania: SQL</main></body></html>"
+    assert "Gdańsk" in page_description(offer_page, "Specjalista ds. Testów")

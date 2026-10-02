@@ -32,6 +32,7 @@ from .base import BaseCollector, JobOffer
 from .parsing import (
     contains_keyword,
     extract_salary,
+    extract_cities,
     extract_skills,
     fold_text,
     json_ld_contracts,
@@ -413,10 +414,21 @@ class CareerPagesCollector(BaseCollector):
                 before = len(scan.offers)
                 self._scan_html(scan, html, page.url, boards, follow_listings=False, method_suffix=" (render)")
                 # Oferty z właśnie wyrenderowanej listy są aktualne. Strony
-                # pojedynczych ofert też bywają tylko-JS, więc zwykła weryfikacja
-                # nie znalazłaby na nich tytułu.
-                for offer in scan.offers[before:]:
+                # pojedynczych ofert też bywają tylko-JS, więc renderujemy je,
+                # żeby mieć opis (umiejętności, tryb pracy) - bez niego ocena
+                # dopasowania byłaby zaniżona.
+                for index in range(before, len(scan.offers)):
+                    offer = scan.offers[index]
                     offer.api_confirmed = True
+                    try:
+                        page.goto(offer.url, wait_until="load", timeout=RENDER_TIMEOUT_MS)
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=8_000)
+                        except PlaywrightError:
+                            pass
+                        scan.offers[index] = self._apply_offer_page(offer, page.content())
+                    except PlaywrightError:
+                        continue
                 for board in boards.values():
                     try:
                         scan.add(board.type, fetch_board(self.session, board, scan.company, self.title_keywords))
@@ -436,8 +448,12 @@ class CareerPagesCollector(BaseCollector):
         except requests.RequestException:
             # Link zostanie jeszcze zweryfikowany przed dodaniem do raportu.
             return offer
+        return self._apply_offer_page(offer, response.text)
 
-        postings = parse_json_ld_jobs(response.text)
+    def _apply_offer_page(self, offer: JobOffer, html: str) -> JobOffer:
+        """Uzupełnia ofertę danymi ze strony oferty (pobranej albo wyrenderowanej)."""
+
+        postings = parse_json_ld_jobs(html)
         if postings:
             posting = postings[0]
             description = BeautifulSoup(str(posting.get("description", "")), "lxml").get_text(" ", strip=True)
@@ -457,12 +473,19 @@ class CareerPagesCollector(BaseCollector):
                 skills=tuple(dict.fromkeys((*offer.skills, *extract_skills(description)))),
             )
 
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = BeautifulSoup(html, "lxml")
         heading = soup.find("h1")
         heading_text = _clean_title(heading.get_text(" ", strip=True)) if heading else ""
         page_text = main_text(soup)
-        location = _extract_location(page_text)
-        work_mode = normalize_work_mode(page_text)
+        # Strona tylko-JS zwraca pustą ramkę z menu ("Praca zdalna" w filtrach),
+        # więc dane bierzemy tylko ze strony, na której jest tytuł tej oferty -
+        # i z fragmentu za tytułem, nie z menu ani listy biur.
+        position = page_text.casefold().find(offer.title.casefold()[:40])
+        if position < 0:
+            return offer
+        window = page_text[position: position + 1500]
+        location = _extract_location(window)
+        work_mode = normalize_work_mode(window)
         return replace(
             offer,
             description=page_text[:DESCRIPTION_LIMIT] if len(page_text) > len(offer.description) else offer.description,
@@ -470,8 +493,8 @@ class CareerPagesCollector(BaseCollector):
             title=heading_text if contains_keyword(heading_text, self.title_keywords) else offer.title,
             location=location if location != "Nie podano" else offer.location,
             work_mode=work_mode if work_mode != "Nie podano" else offer.work_mode,
-            contract_types=normalize_contracts(page_text) or offer.contract_types,
-            salary=extract_salary(page_text) or offer.salary,
+            contract_types=normalize_contracts(window) or offer.contract_types,
+            salary=extract_salary(window) or offer.salary,
             skills=tuple(dict.fromkeys((*offer.skills, *extract_skills(page_text)))),
         )
 
@@ -673,11 +696,17 @@ def main_text(soup: BeautifulSoup) -> str:
 
 
 def _extract_location(context: str) -> str:
+    """Miasta z tekstu karty / strony oferty; miasto z profilu na początku."""
+
     from config.profile import PROFILE
 
-    if is_preferred_city(context):
-        return PROFILE.preferred_city
-    return "Nie podano"
+    cities = extract_cities(context)
+    if is_preferred_city(context) and PROFILE.preferred_city not in cities:
+        cities.insert(0, PROFILE.preferred_city)
+    elif PROFILE.preferred_city in cities:
+        cities.remove(PROFILE.preferred_city)
+        cities.insert(0, PROFILE.preferred_city)
+    return "; ".join(cities) or "Nie podano"
 
 
 def _extract_work_mode(context: str, company: Company) -> str:

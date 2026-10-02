@@ -42,7 +42,7 @@ def test_find_boards_in_html_detects_escaped_and_hosted_platforms():
 
 @pytest.mark.parametrize(
     ("location", "expected"),
-    [("Kraków, Poland", True), ("Wrocław", True), ("Warszawa, Polska", True), ("", True),
+    [("Kraków, Poland", True), ("Wrocław", True), ("Warszawa, Polska", True), ("", True), ("Gdynia", True),
      ("Bangalore, India", False), ("Remote - EMEA", True), ("Remote, USA", False)],
 )
 def test_in_target_country(location, expected):
@@ -138,3 +138,15 @@ def test_card_title_from_title_class_without_css_and_apply_button():
 
     anchor = BeautifulSoup(ASSECO_CARD, "lxml").select_one("a")
     assert _anchor_title(anchor) == "Tester Systemowy/Analityk"
+
+
+def test_extract_cities_and_location_from_card():
+    from collectors.careers import _extract_location
+    from collectors.parsing import extract_cities
+
+    assert extract_cities("Praca: Gdańsk, Gdynia, Sopot") == ["Gdańsk", "Gdynia", "Sopot"]
+    assert extract_cities("Lublin") == ["Lublin"]  # nie Lubin
+    # Regresja (Asseco): miasto spoza profilu było zamieniane na "Nie podano".
+    assert _extract_location("Testowanie Specjalista ds. Testów (m./k./os.) Gdynia Aplikuj teraz") == "Gdynia"
+    assert _extract_location("Gdańsk, Wroclaw") == "Wrocław; Gdańsk"
+    assert _extract_location("Praca zdalna") == "Nie podano"

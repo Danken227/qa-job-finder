@@ -42,15 +42,24 @@ def extract_skills(text: str) -> tuple[str, ...]:
     )
 
 
+FULLY_REMOTE = ("100% remote", "fully remote", "full remote", "full-remote", "remote-first", "remote only",
+                "100% zdaln", "w pełni zdaln", "całkowicie zdaln", "wyłącznie zdaln", "tylko zdaln")
+
+
 def normalize_work_mode(text: str) -> str:
     normalized = text.casefold()
-    if "remote" in normalized or "zdaln" in normalized:
+    # Kolejność ma znaczenie: "model hybrydowy (3 dni stacjonarnie, 2 dni
+    # zdalnie)" to praca hybrydowa, choć pada w nim słowo "zdalnie".
+    if any(marker in normalized for marker in FULLY_REMOTE):
         return "Remote"
     if "hybrid" in normalized or "hybryd" in normalized:
         return "Hybrid"
+    if "remote" in normalized or "zdaln" in normalized:
+        return "Remote"
     if "office" in normalized or "stacjonar" in normalized:
         return "Office"
-    if "mobile" in normalized or "mobiln" in normalized:
+    # "Mobile" tylko jako tryb pracy - "aplikacje mobilne" to przedmiot testów.
+    if "praca mobiln" in normalized or "mobile work" in normalized:
         return "Mobile"
     return "Nie podano"
 
@@ -143,6 +152,29 @@ def contains_keyword(text: str, keywords: tuple[str, ...] | list[str]) -> bool:
         elif " " + folded_keyword in folded:
             return True
     return False
+
+
+# Większe polskie miasta (nazwa w raporcie, warianty pisowni). Pozwala zapisać
+# faktyczne miasto oferty zamiast "Nie podano", gdy nie jest to miasto z profilu.
+POLISH_CITIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Warszawa", ("warszawa", "warsaw")), ("Kraków", ("krakow", "cracow")), ("Łódź", ("lodz",)),
+    ("Wrocław", ("wroclaw",)), ("Poznań", ("poznan",)), ("Gdańsk", ("gdansk",)), ("Gdynia", ("gdynia",)),
+    ("Sopot", ("sopot",)), ("Szczecin", ("szczecin",)), ("Bydgoszcz", ("bydgoszcz",)), ("Lublin", ("lublin",)),
+    ("Białystok", ("bialystok",)), ("Katowice", ("katowice",)), ("Gliwice", ("gliwice",)),
+    ("Częstochowa", ("czestochowa",)), ("Radom", ("radom",)), ("Toruń", ("torun",)), ("Rzeszów", ("rzeszow",)),
+    ("Kielce", ("kielce",)), ("Olsztyn", ("olsztyn",)), ("Opole", ("opole",)), ("Bielsko-Biała", ("bielsko",)),
+    ("Zielona Góra", ("zielona gora",)), ("Legnica", ("legnica",)), ("Wałbrzych", ("walbrzych",)),
+    ("Tychy", ("tychy",)), ("Sosnowiec", ("sosnowiec",)), ("Płock", ("plock",)), ("Elbląg", ("elblag",)),
+    ("Koszalin", ("koszalin",)), ("Słupsk", ("slupsk",)), ("Tarnów", ("tarnow",)), ("Kalisz", ("kalisz",)),
+    ("Lubin", ("lubin",)), ("Jelenia Góra", ("jelenia gora",)), ("Gorzów Wielkopolski", ("gorzow",)),
+)
+
+
+def extract_cities(text: str) -> list[str]:
+    """Polskie miasta wymienione w tekście (bez polskich znaków, całe słowa)."""
+
+    folded = " " + re.sub(r"[^a-z]+", " ", fold_text(text)) + " "
+    return [name for name, variants in POLISH_CITIES if any(f" {variant} " in folded for variant in variants)]
 
 
 def work_mode_from_flags(remote: bool = False, hybrid: bool = False) -> str:
