@@ -10,10 +10,12 @@ from pipeline import ReportResult, build_report, configure_console
 
 REPORTS_DIR = "reports/portals"
 BASENAME = "portals_report"
+SHEET_TAB = "Portale"
 
 
 def run() -> ReportResult:
     collected = []
+    problems: list[str] = []
     collectors = (
         JustJoinItCollector(),
         NoFluffJobsCollector(),
@@ -26,9 +28,12 @@ def run() -> ReportResult:
             offers = collector.collect()
         except Exception as error:
             print(f"{source_name}: pominięto źródło ({error}).")
+            problems.append(f"{source_name}: źródło nie działa ({error})")
             continue
         collected.extend(offers)
         print(f"{source_name}: pobrano {len(offers)} ofert.")
+        if not offers:
+            problems.append(f"{source_name}: 0 ofert - możliwa zmiana strony portalu")
 
     if not collected:
         raise RuntimeError("Żadne źródło nie zwróciło ofert.")
@@ -39,6 +44,8 @@ def run() -> ReportResult:
         reports_dir=REPORTS_DIR,
         basename=BASENAME,
         title="Raport ofert QA – portale",
+        sheet_tab=SHEET_TAB,
+        problems=problems,
     )
 
 

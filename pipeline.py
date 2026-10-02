@@ -35,9 +35,13 @@ class ReportResult:
     saved: int
     excel_path: Path
     html_path: Path
-    # Oferty, których nie było w poprzednich raportach (wiersze Excela).
+    # Oferty, których nie było w poprzednich raportach (wiersze listy).
     new_rows: list[dict[str, str]] = field(default_factory=list)
     active: int = 0
+    # Problemy ze źródłami i zapisem - trafiają do maila, żeby awaria
+    # (np. zmiana strony portalu) nie przeszła niezauważona.
+    problems: list[str] = field(default_factory=list)
+    sheet_url: str = ""
 
 
 def configure_console() -> None:
@@ -56,6 +60,9 @@ def build_report(
     title: str,
     title_keywords: tuple[str, ...] = (),
     seniority_exclude: tuple[str, ...] = (),
+    sheet_tab: str = "",
+    problems: list[str] | None = None,
+    scope: set[str] | None = None,
 ) -> ReportResult:
     """Filtruje i weryfikuje oferty, zapisuje raport i wypisuje podsumowanie."""
 
@@ -74,13 +81,15 @@ def build_report(
         )
 
     result = verify_offers(filtering.offers)
-    exported = export(result.offers, reports_dir=reports_dir, basename=basename, title=title)
+    exported = export(result.offers, reports_dir=reports_dir, basename=basename, title=title, sheet_tab=sheet_tab, scope=scope)
     print(f"Zweryfikowano: {result.passed}, odrzucono: {result.rejected}, obcięto limitem: {result.trimmed}.")
     print(f"W tym wyszukiwaniu: {len(result.offers)} ofert, nowych: {len(exported.new_rows)}.")
     print(f"Excel: {exported.excel_path}")
     print(f"HTML:  {exported.html_path}")
-    if exported.warning:
-        print(f"UWAGA: {exported.warning}")
+    if exported.sheet_url:
+        print(f"Arkusz Google (zakładka {sheet_tab}): {exported.sheet_url}")
+    for warning in exported.warnings:
+        print(f"UWAGA: {warning}")
     return ReportResult(
         name,
         len(offers),
@@ -89,6 +98,8 @@ def build_report(
         exported.html_path,
         exported.new_rows,
         exported.active_rows,
+        [*(problems or []), *exported.warnings],
+        exported.sheet_url,
     )
 
 
@@ -149,6 +160,17 @@ def print_career_scan(collector: CareerPagesCollector, verbose: bool, label: str
                 status = f"brak ofert (sprawdzono ATS: {boards})" if boards else "brak ofert"
             print(f"- [{scan.company.priority}] {scan.company.name}: {status}")
         print()
+
+
+def career_problems(collector: CareerPagesCollector) -> list[str]:
+    """Problemy ze stronami karier do sekcji "problemy" w mailu."""
+
+    problems = [f"zablokowane: {item}" for item in collector.blocked]
+    problems += [f"nieaktualny adres: {item}" for item in collector.outdated]
+    problems += [f"błąd: {item}" for item in collector.failures]
+    # Ostrzeżenia o niedostępnym ATS oznaczają realnie niesprawdzoną firmę.
+    problems += [f"ostrzeżenie: {item}" for item in collector.warnings if "niedostępny" in item]
+    return problems
 
 
 def print_career_problems(collector: CareerPagesCollector) -> None:

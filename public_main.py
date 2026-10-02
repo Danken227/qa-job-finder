@@ -26,6 +26,7 @@ from pipeline import (
     ReportResult,
     add_career_arguments,
     build_report,
+    career_problems,
     configure_console,
     print_career_problems,
     print_career_scan,
@@ -34,6 +35,7 @@ from pipeline import (
 
 REPORTS_DIR = "reports/public"
 BASENAME = "public_report"
+SHEET_TAB = "Budżetówka"
 SOURCE = "Budżetówka"
 
 
@@ -45,6 +47,8 @@ def run(
     skip_nabory: bool = False,
 ) -> ReportResult:
     offers = []
+    problems: list[str] = []
+    central_ran = not skip_nabory and not company_names and set(tiers) == {"S", "A", "B"}
     if not skip_nabory and not company_names:
         for label, central in (
             ("nabory.kprm.gov.pl", NaboryKprmCollector(keywords=PROFILE.public_title_keywords)),
@@ -54,6 +58,7 @@ def run(
                 found = central.collect()
             except Exception as error:  # noqa: BLE001 - pozostałe źródła nadal mają się wykonać
                 print(f"{label}: pominięto źródło ({error}).")
+                problems.append(f"{label}: źródło niedostępne ({error})")
             else:
                 offers.extend(found)
                 print(f"{label}: {len(found)} aktywnych ogłoszeń pasujących do słów kluczowych.")
@@ -77,6 +82,10 @@ def run(
         title="Raport ofert QA – sektor publiczny",
         title_keywords=PROFILE.public_title_keywords,
         seniority_exclude=PROFILE.public_seniority_exclude,
+        sheet_tab=SHEET_TAB,
+        problems=[*problems, *career_problems(collector)],
+        # Wyszukiwarki centralne obejmują setki urzędów - pełny zakres tylko wtedy, gdy działały.
+        scope=None if central_ran else {scan.company.name for scan in collector.scans},
     )
     print_career_problems(collector)
     return result

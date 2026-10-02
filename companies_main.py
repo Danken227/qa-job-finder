@@ -9,6 +9,7 @@ from pipeline import (
     ReportResult,
     add_career_arguments,
     build_report,
+    career_problems,
     configure_console,
     print_career_problems,
     print_career_scan,
@@ -17,6 +18,7 @@ from pipeline import (
 
 REPORTS_DIR = "reports/companies"
 BASENAME = "company_report"
+SHEET_TAB = "Firmy"
 
 
 def run(
@@ -37,6 +39,10 @@ def run(
         reports_dir=REPORTS_DIR,
         basename=BASENAME,
         title="Raport ofert QA – strony karier firm",
+        sheet_tab=SHEET_TAB,
+        problems=career_problems(collector),
+        # Przy --company / --tiers S oferty niesprawdzanych firm nie są oznaczane jako zniknięte.
+        scope={scan.company.name for scan in collector.scans},
     )
     print_career_problems(collector)
     return result

@@ -41,10 +41,41 @@ wpisane w kopii nie zostaną przeniesione.
 Raport `.html` pokazuje te same oferty: na górze do przejrzenia, niżej zwinięte
 „Załatwione” i „Nie ma ich w ostatnim wyszukiwaniu”.
 
+## Arkusze Google (statusy z telefonu)
+
+Zamiast lokalnego Excela listę ofert można trzymać w Arkuszu Google
+(zakładki Portale / Firmy / Budżetówka) i zmieniać statusy z dowolnego
+urządzenia. Program czyta arkusz tuż przed zapisem, więc statusy ustawione
+w telefonie są zachowane. Lokalny Excel nadal powstaje jako kopia zapasowa.
+Jeśli Google nie odpowie, program **nie nadpisuje** arkusza (zapisuje tylko
+Excel) i zgłasza to w mailu.
+
+Jednorazowa konfiguracja (ok. 15 minut):
+
+1. <https://console.cloud.google.com/> → utwórz projekt (np. `qa-job-finder`).
+2. **APIs & Services → Library** → wyszukaj **Google Sheets API** → **Enable**.
+3. **IAM & Admin → Service Accounts → Create service account** (nazwa np.
+   `qa-job-finder`, role można pominąć) → wejdź w konto → **Keys → Add key →
+   Create new key → JSON**. Zapisz pobrany plik jako
+   `config/google_service_account.json` (plik jest ignorowany przez Git —
+   to hasło do arkusza, nie wysyłaj go nikomu).
+4. Utwórz pusty arkusz na <https://sheets.google.com> → **Udostępnij** →
+   wklej adres konta usługi (`…@….iam.gserviceaccount.com`, pole
+   `client_email` w pliku JSON) z uprawnieniem **Edytor**.
+5. Skopiuj `config/sheets.example.json` jako `config/sheets.json` i wpisz
+   `spreadsheet_id` — fragment adresu arkusza między `/d/` a `/edit`.
+6. Uruchom `python setup_sheets.py` — sprawdzi dostęp, utworzy zakładki
+   i przeniesie do nich obecne statusy z lokalnych plików Excel.
+
+Konto usługi widzi wyłącznie arkusze, które mu udostępnisz.
+
 ## Cotygodniowy raport mailem
 
-`run_all.py --email` po zakończeniu wysyła na Gmail trzy pliki Excel
-w załącznikach, a w treści listę nowych ofert.
+`run_all.py --email` po zakończeniu wysyła na Gmail link do arkusza (gdy
+Arkusze Google są skonfigurowane), listę nowych ofert, sekcję **problemów ze
+źródłami** (portal bez ofert, zablokowana strona, nieaktualny adres,
+niedostępny ATS lub arkusz) oraz trzy pliki Excel w załącznikach. Załączniki
+wyłączysz w `config/notify.json`: `"attach_reports": false`.
 
 Jednorazowa konfiguracja:
 

@@ -1,4 +1,8 @@
-"""Eksport ofert do Excela (trwała lista ze statusami) i HTML.
+"""Eksport ofert do Arkuszy Google / Excela (trwała lista ze statusami) i HTML.
+
+Gdy skonfigurowane są Arkusze Google (``config/sheets.json``), to one są
+źródłem statusów: program czyta zakładkę tuż przed zapisem, a lokalny Excel
+jest kopią zapasową. Bez konfiguracji źródłem jest lokalny Excel.
 
 Plik Excel jest jednocześnie "trackerem": przy każdym uruchomieniu program
 wczytuje poprzednią wersję i przenosi to, co wpisałeś ręcznie - kolumny
@@ -63,7 +67,8 @@ class ExportResult:
     html_path: Path
     new_rows: list[dict[str, str]] = field(default_factory=list)
     active_rows: int = 0
-    warning: str = ""
+    warnings: list[str] = field(default_factory=list)
+    sheet_url: str = ""
 
 
 def export(
@@ -71,19 +76,40 @@ def export(
     reports_dir: Path | str = "reports",
     basename: str = "report",
     title: str = "Raport ofert QA",
+    sheet_tab: str = "",
+    scope: set[str] | None = None,
 ) -> ExportResult:
-    """Scala bieżące oferty z poprzednim Excelem i zapisuje Excel + HTML."""
+    """Scala bieżące oferty z poprzednią listą i zapisuje arkusz, Excel i HTML.
+
+    ``scope`` - nazwy firm sprawdzonych w tym przebiegu (None = wszystkie).
+    Oferty firm spoza zakresu (np. przy ``--company Sii``) zachowują
+    poprzednie "W ostatnim wyszukiwaniu", zamiast dostać "Nie".
+    """
 
     output_dir = Path(reports_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     excel_path = output_dir / f"{basename}.xlsx"
     html_path = output_dir / f"{basename}.html"
     today = date.today().isoformat()
+    warnings: list[str] = []
 
-    previous = _read_previous(excel_path)
-    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today)
+    store, previous = None, None
+    if sheet_tab:
+        store, error = _sheet_store()
+        if error:
+            warnings.append(error)
+        if store is not None:
+            try:
+                previous = store.read_rows(sheet_tab)
+            except Exception as error:  # noqa: BLE001 - awaria Google nie może zatrzymać raportu
+                # Bez odczytu nie zapisujemy - nadpisalibyśmy statusy ustawione w arkuszu.
+                warnings.append(f"Arkusze Google: nie udało się odczytać zakładki {sheet_tab} ({error}); "
+                                "arkusz nie został zaktualizowany, zapisano tylko lokalny Excel.")
+                store = None
+    if previous is None:
+        previous = _read_previous(excel_path)
+    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today, scope)
 
-    warning = ""
     try:
         _write_excel(rows, excel_path)
     except PermissionError:
@@ -91,14 +117,45 @@ def export(
         stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
         fallback = output_dir / f"{basename} (kopia {stamp}).xlsx"
         _write_excel(rows, fallback)
-        warning = (
-            f"{excel_path} jest otwarty w Excelu - zapisano kopię {fallback.name}. "
-            "Zamknij plik przed kolejnym uruchomieniem; statusy wpisane w kopii nie zostaną przeniesione."
-        )
+        if store is None:
+            warnings.append(
+                f"{excel_path} jest otwarty w Excelu - zapisano kopię {fallback.name}. "
+                "Zamknij plik przed kolejnym uruchomieniem; statusy wpisane w kopii nie zostaną przeniesione."
+            )
         excel_path = fallback
-    _write_html(rows, html_path, title, today)
+
+    sheet_url = ""
+    if store is not None:
+        try:
+            store.write_rows(sheet_tab, COLUMNS, rows, STATUSES, DONE_STATUSES, STATUS_NEW)
+            sheet_url = store.settings.url
+        except Exception as error:  # noqa: BLE001 - lokalny Excel jest już zapisany
+            warnings.append(f"Arkusze Google: nie udało się zapisać zakładki {sheet_tab} ({error}).")
+    _write_html(rows, html_path, title, today, sheet_url)
     active = sum(1 for row in rows if row["W ostatnim wyszukiwaniu"] == "Tak")
-    return ExportResult(excel_path, html_path, new_rows, active, warning)
+    return ExportResult(excel_path, html_path, new_rows, active, warnings, sheet_url)
+
+
+_STORE_CACHE: dict[str, object] = {}
+
+
+def _sheet_store():
+    """(SheetStore albo None, komunikat błędu). Połączenie jest współdzielone między raportami."""
+
+    if "store" in _STORE_CACHE:
+        return _STORE_CACHE["store"], ""
+    import sheets
+
+    settings = sheets.load_settings()
+    if settings is None:
+        return None, ""
+    try:
+        store = sheets.SheetStore(settings)
+    except Exception as error:  # noqa: BLE001
+        return None, (f"Arkusze Google niedostępne ({type(error).__name__}: {error}); "
+                      "statusy odczytano i zapisano tylko w lokalnym Excelu.")
+    _STORE_CACHE["store"] = store
+    return store, ""
 
 
 def _to_row(offer: JobOffer) -> dict[str, str]:
@@ -150,6 +207,7 @@ def _merge(
     previous: list[dict[str, str]],
     current: list[dict[str, str]],
     today: str,
+    scope: set[str] | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Zwraca (wszystkie wiersze, oferty nowe w tym przebiegu)."""
 
@@ -180,7 +238,9 @@ def _merge(
         if id(old) in matched:
             continue
         old = {column: old.get(column, "") for column in COLUMNS}
-        old["W ostatnim wyszukiwaniu"] = "Nie"
+        in_scope = scope is None or old.get("Firma", "").casefold() in {name.casefold() for name in scope}
+        if in_scope or not old["W ostatnim wyszukiwaniu"]:
+            old["W ostatnim wyszukiwaniu"] = "Nie"
         rows.append(old)
 
     # Najpierw najnowsze wykrycia, potem (sortowanie stabilne) aktywne i
@@ -260,11 +320,15 @@ HTML_COLUMNS = ("Status", "Priorytet", "Firma", "Stanowisko", "Lokalizacja", "Mo
                 "Wynagrodzenie", "Ocena", "Dlaczego pasuje", "Pierwsze wykrycie", "Link")
 
 
-def _write_html(rows: list[dict[str, str]], html_path: Path, title: str, today: str) -> None:
+def _write_html(rows: list[dict[str, str]], html_path: Path, title: str, today: str, sheet_url: str = "") -> None:
     active = [row for row in rows if row["W ostatnim wyszukiwaniu"] == "Tak" and row["Status"] not in DONE_STATUSES]
     done = [row for row in rows if row["W ostatnim wyszukiwaniu"] == "Tak" and row["Status"] in DONE_STATUSES]
     gone = [row for row in rows if row["W ostatnim wyszukiwaniu"] != "Tak"]
     new_count = sum(1 for row in active if row["Pierwsze wykrycie"] == today)
+    status_hint = (
+        f'Statusy zmieniasz w <a href="{escape(sheet_url, quote=True)}">Arkuszu Google</a>'
+        if sheet_url else "Statusy zmieniasz w pliku Excel obok"
+    ) + " - ten widok odświeży się przy kolejnym uruchomieniu."
 
     sections = [_html_table(active, today, "Brak nowych ani obejrzanych ofert spełniających kryteria.")]
     if done:
@@ -297,7 +361,7 @@ def _write_html(rows: list[dict[str, str]], html_path: Path, title: str, today: 
 <body>
   <h1>{escape(title)}</h1>
   <p>Do przejrzenia: {len(active)} (nowe dziś: {new_count}). Każdy link został sprawdzony przed dodaniem do raportu.
-  Statusy zmieniasz w pliku Excel obok - ten widok odświeży się przy kolejnym uruchomieniu.</p>
+  {status_hint}</p>
   {"".join(sections)}
 </body>
 </html>

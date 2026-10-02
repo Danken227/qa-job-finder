@@ -4,3 +4,6 @@ reports/
 *.pyc
 config/search_profile.json
 config/notify.json
+config/sheets.json
+config/google_service_account.json
+config/*service_account*.json

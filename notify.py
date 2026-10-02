@@ -32,6 +32,7 @@ class NotifySettings:
     recipients: tuple[str, ...]
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 465
+    attach_reports: bool = True
 
 
 def load_settings(path: Path = NOTIFY_PATH) -> NotifySettings:
@@ -47,6 +48,7 @@ def load_settings(path: Path = NOTIFY_PATH) -> NotifySettings:
         recipients=tuple(str(item) for item in recipients),
         smtp_host=str(raw.get("smtp_host", "smtp.gmail.com")),
         smtp_port=int(raw.get("smtp_port", 465)),
+        attach_reports=bool(raw.get("attach_reports", True)),
     )
 
 
@@ -78,6 +80,10 @@ def build_message(
 
     text_lines = [f"Raport z {date.today().isoformat()}.", ""]
     html_parts = [f"<p>Raport z {date.today().isoformat()}.</p>"]
+    sheet_url = next((result.sheet_url for result in results if result.sheet_url), "")
+    if sheet_url:
+        text_lines += [f"Arkusz ze statusami: {sheet_url}", ""]
+        html_parts.append(f'<p><b><a href="{escape(sheet_url, quote=True)}">Otwórz arkusz ze statusami</a></b></p>')
     for result in results:
         text_lines.append(
             f"{result.name}: nowe {len(result.new_rows)}, do przejrzenia {result.active} "
@@ -95,17 +101,23 @@ def build_message(
                 items.append(f'<li><a href="{escape(row.get("Link", ""), quote=True)}">{escape(label)}</a></li>')
             html_parts.append(f"<ul>{''.join(items)}</ul>")
         text_lines.append("")
-    if errors:
-        text_lines += ["Błędy:", *(f"  - {error}" for error in errors)]
-        html_parts.append("<h3>Błędy</h3><ul>" + "".join(f"<li>{escape(error)}</li>" for error in errors) + "</ul>")
-    text_lines.append("Statusy (obejrzana / CV wysłane) zmieniaj w plikach Excel na komputerze - "
-                      "załączniki to tylko kopie do podglądu.")
-    html_parts.append("<p><small>Statusy zmieniaj w plikach Excel na komputerze - "
-                      "załączniki to tylko kopie do podglądu.</small></p>")
+    problems = [*errors, *(f"{result.name}: {problem}" for result in results for problem in result.problems)]
+    if problems:
+        text_lines += ["Problemy ze źródłami (do sprawdzenia):", *(f"  - {problem}" for problem in problems), ""]
+        html_parts.append(
+            "<h3>Problemy ze źródłami (do sprawdzenia)</h3><ul>"
+            + "".join(f"<li>{escape(problem)}</li>" for problem in problems) + "</ul>"
+        )
+    hint = ("Statusy (obejrzana / CV wysłane) zmieniaj w arkuszu Google"
+            if sheet_url else "Statusy (obejrzana / CV wysłane) zmieniaj w plikach Excel na komputerze")
+    if settings.attach_reports:
+        hint += " - załączniki to tylko kopie do podglądu."
+    text_lines.append(hint)
+    html_parts.append(f"<p><small>{escape(hint)}</small></p>")
 
     message.set_content("\n".join(text_lines))
     message.add_alternative("".join(html_parts), subtype="html")
-    for result in results:
+    for result in results if settings.attach_reports else ():
         path = Path(result.excel_path)
         if path.exists():
             maintype, subtype = (mimetypes.guess_type(path.name)[0] or "application/octet-stream").split("/")
