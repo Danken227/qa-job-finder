@@ -1,10 +1,11 @@
-"""Skrypt 1: oferty QA z portali (JustJoinIT, No Fluff Jobs, RocketJobs, LinkedIn)."""
+"""Skrypt 1: oferty QA z portali (JustJoinIT, No Fluff Jobs, RocketJobs, Pracuj.pl, LinkedIn)."""
 
 from __future__ import annotations
 
 from collectors.justjoinit import JustJoinItCollector
 from collectors.linkedin import LinkedInCollector
 from collectors.nofluffjobs import NoFluffJobsCollector
+from collectors.pracuj import PracujCollector
 from collectors.rocketjobs import RocketJobsCollector
 from pipeline import ReportResult, build_report, configure_console
 
@@ -20,6 +21,7 @@ def run() -> ReportResult:
         JustJoinItCollector(),
         NoFluffJobsCollector(),
         RocketJobsCollector(),
+        PracujCollector(),
         LinkedInCollector(),
     )
     for collector in collectors:

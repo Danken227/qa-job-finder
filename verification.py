@@ -138,6 +138,7 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
             or offer.source == "LinkedIn" and "/jobs/view/" in response.url
             or offer.source == "No Fluff Jobs" and "/pl/job/" in response.url
             or offer.source == "RocketJobs" and "/oferta-pracy/" in response.url
+            or offer.source == "Pracuj.pl" and ",oferta," in response.url
         )
         if not is_company_career and not known_offer_path:
             return replace(offer, verified=False)

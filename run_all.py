@@ -32,7 +32,12 @@ def main() -> None:
         help="Priorytety firm i instytucji; domyślnie wszystkie.",
     )
     parser.add_argument("--render", action="store_true", help="Renderuj strony JS w Chromium (wolniejsze).")
-    parser.add_argument("--email", action="store_true", help="Wyślij raporty mailem (config/notify.json).")
+    parser.add_argument(
+        "--email",
+        action="store_true",
+        help="Wyślij mail (config/notify.json) - tylko gdy są nowe oferty albo problemy ze źródłami.",
+    )
+    parser.add_argument("--email-always", action="store_true", help="Wyślij mail nawet bez nowości.")
     parser.add_argument(
         "--skip",
         nargs="+",
@@ -71,7 +76,13 @@ def main() -> None:
     for error in errors:
         print(f"- BŁĄD {error}")
 
-    if args.email:
+    if args.email or args.email_always:
+        new_total = sum(len(result.new_rows) for result in results)
+        problems = errors or any(result.problems for result in results)
+        if not (new_total or problems or args.email_always):
+            # Bez nowości mail nic nie wnosi - nie zaśmiecamy skrzynki.
+            print("Brak nowych ofert i problemów - mail nie został wysłany.")
+            return
         try:
             notify.send_reports(results, errors)
         except Exception as error:  # noqa: BLE001 - raporty i tak są zapisane na dysku

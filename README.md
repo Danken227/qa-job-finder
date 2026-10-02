@@ -7,7 +7,7 @@ wynagrodzenie, lokalizacja i umiejętności nie są częścią repozytorium.
 
 | Skrypt | Źródło ofert | Raport |
 |---|---|---|
-| `portals_main.py` | portale: JustJoinIT, No Fluff Jobs, RocketJobs, LinkedIn Jobs | `reports/portals/portals_report.*` |
+| `portals_main.py` | portale: JustJoinIT, No Fluff Jobs, RocketJobs, Pracuj.pl, LinkedIn Jobs | `reports/portals/portals_report.*` |
 | `companies_main.py` | oficjalne strony karier firm z `config/companies.json` | `reports/companies/company_report.*` |
 | `public_main.py` | budżetówka: nabory.kprm.gov.pl, ogłoszenia gov.pl + instytucje z `config/public_institutions.json` | `reports/public/public_report.*` |
 | `run_all.py` | uruchamia trzy powyższe po kolei | każdy w swoim katalogu |
@@ -84,7 +84,8 @@ Jednorazowa konfiguracja:
    w Menedżerze poświadczeń Windows (nie w pliku) i wyśle mail testowy.
 
 Harmonogram: zadanie „QA Job Finder” w Harmonogramie zadań Windows uruchamia
-`scheduled_run.cmd` w każdy poniedziałek o 8:00. Jeśli komputer był wtedy
+`scheduled_run.cmd` w poniedziałki i czwartki o 8:00. Mail przychodzi tylko
+wtedy, gdy są nowe oferty albo problem ze źródłami. Jeśli komputer był wtedy
 wyłączony, zadanie wykona się po jego włączeniu. Log ostatniego przebiegu:
 `reports/logs/last_run.log`. `scheduled_run.cmd` zawiera ścieżkę do Pythona
 (`C:\Python312\python.exe`) — zmień ją, jeśli Python jest gdzie indziej.
@@ -92,7 +93,7 @@ wyłączony, zadanie wykona się po jego włączeniu. Log ostatniego przebiegu:
 Zmiana terminu (PowerShell):
 
 ```powershell
-Set-ScheduledTask -TaskName "QA Job Finder" -Trigger (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "08:00")
+Set-ScheduledTask -TaskName "QA Job Finder" -Trigger (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Thursday -At "08:00")
 Start-ScheduledTask -TaskName "QA Job Finder"        # uruchom teraz, na próbę
 Unregister-ScheduledTask -TaskName "QA Job Finder"   # usuń harmonogram
 ```
@@ -121,7 +122,11 @@ Opcje `companies_main.py` i `public_main.py`:
 --skip-nabory              # public_main.py: pomiń nabory.kprm.gov.pl
 ```
 
-Opcje `run_all.py`: `--tiers`, `--render`, `--email`, `--skip portals companies public`.
+Opcje `run_all.py`: `--tiers`, `--render`, `--email` (mail tylko przy nowych ofertach
+albo problemach ze źródłami), `--email-always`, `--skip portals companies public`.
+
+Pracuj.pl blokuje zwykłe zapytania (Cloudflare), więc jest odczytywany przez
+Chromium bez okna — wymaga jednorazowego `python -m playwright install chromium`.
 
 Na końcu skrypty stron karier wypisują wpisy zablokowane (401/403/429),
 z nieaktualnym adresem (404, strona błędu, przekierowanie na stronę główną,
