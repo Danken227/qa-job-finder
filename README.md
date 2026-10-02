@@ -18,12 +18,33 @@ tych samych filtrów profilu, a każdy link jest otwierany i sprawdzany przed
 dodaniem do raportu. Program nie dopisuje ofert na siłę: jeśli mniej pozycji
 przejdzie filtry i kontrolę linków, raport będzie krótszy od limitu.
 
+## Analiza treści ofert
+
+Po weryfikacji linku program czyta pełny opis oferty (z danych strukturalnych
+strony; dla Pracuj.pl — przez Chromium) i:
+
+- **odrzuca oferty wymagające języka obcego innego niż angielski** (niemiecki,
+  francuski, włoski…). Wzmianka w tytule („Tester with German”) wyklucza zawsze;
+  w opisie — tylko jako wymaganie („znajomość języka niemieckiego”, „fluent
+  German”), a nie gdy język jest „mile widziany” albo gdy chodzi o rynek
+  („for the German market”);
+- **szacuje udział testów manualnych** — kolumna **Manual / automat**, np.
+  `80% manual / 20% automat · manual: przypadki testowe, eksploracyjne ·
+  automat: Selenium`. Wpływa na ocenę (100% manual: +5, 0%: −5); oferty poniżej
+  25% manualnych z wyraźną automatyzacją są odrzucane jak stanowiska
+  automatyzujące.
+
 ## Lista ofert w Excelu (statusy)
 
 Plik `.xlsx` każdego raportu to trwała lista ofert. W pomarańczowej kolumnie
 **Status** wybierasz z listy: Nowa / Obejrzana / CV wysłane / Rozmowa /
 Odrzucona / Nie interesuje mnie. Tytuł w kolumnie **Stanowisko** jest linkiem
 do oferty (kolumna „Link” jest ukryta — program rozpoznaje po niej oferty).
+
+Status jest wspólny dla tej samej oferty we wszystkich listach (Portale /
+Firmy / Budżetówka): oferta jest rozpoznawana po linku albo po tytule i nazwie
+firmy bez formy prawnej („Sii Polska Sp. z o.o.” = „Sii”). Bardziej zaawansowany
+status wygrywa — „CV wysłane” ustawione w Portalach pojawi się też w Firmach.
 
 Przy kolejnym uruchomieniu program wczytuje poprzedni plik i przenosi statusy (oferty dopasowuje po linku, a gdy link się zmieni — po firmie
 i tytule). Nowe oferty dostają status „Nowa” (zielone tło) i trafiają na
@@ -230,3 +251,13 @@ Pola opcjonalne:
 
 Wskazanie `ats` jest najpewniejsze: API zwraca pełną listę ofert z lokalizacją
 i trybem pracy, niezależnie od wyglądu strony kariery.
+
+## Testy
+
+```powershell
+python -m pip install -r requirements-dev.txt --user
+python -m pytest
+```
+
+Testy nie łączą się z internetem i używają profilu testowego
+(`tests/fixtures/search_profile.json`), a nie Twojego `config/search_profile.json`.

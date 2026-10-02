@@ -139,10 +139,58 @@ def _to_offer(grouped: dict) -> JobOffer | None:
         source="Pracuj.pl",
         skills=extract_skills(str(grouped.get("jobDescription") or "")),
         expires_in=str(grouped.get("expirationDate") or "")[:10],
+        description=str(grouped.get("jobDescription") or ""),
         # Oferta pochodzi z aktualnej listy wyników; strona oferty jest za
         # Cloudflare, więc weryfikacja zwykłym zapytaniem dostaje 403.
         api_confirmed=True,
     )
+
+
+# Sekcje strony oferty z treścią merytoryczną (bez benefitów, aplikowania, firmy).
+DESCRIPTION_SECTIONS = ("about-project", "technologies", "responsibilities", "requirements",
+                        "development-practices", "training-space", "work-organization")
+
+
+def fetch_descriptions(urls: list[str]) -> dict[str, str]:
+    """Pełne opisy ofert Pracuj.pl (sekcje strony) - adres -> tekst.
+
+    Strona oferty też jest za Cloudflare, więc jak przy wyszukiwaniu: Chromium
+    bez okna i nowa sesja dla każdej strony. Błędy pojedynczych stron pomijamy.
+    """
+
+    from bs4 import BeautifulSoup
+    from playwright.sync_api import Error as PlaywrightError
+    from playwright.sync_api import sync_playwright
+
+    descriptions: dict[str, str] = {}
+    if not urls:
+        return descriptions
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        try:
+            for url in urls:
+                context = browser.new_context(locale="pl-PL", user_agent=USER_AGENT)
+                try:
+                    page = context.new_page()
+                    page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    page.wait_for_selector("[data-test^='section-']", state="attached",
+                                           timeout=CHALLENGE_WAIT_SECONDS * 1000)
+                    soup = BeautifulSoup(page.content(), "lxml")
+                except (PlaywrightError, PlaywrightTimeout):
+                    continue
+                finally:
+                    context.close()
+                parts = [
+                    section.get_text(" ", strip=True)
+                    for name in DESCRIPTION_SECTIONS
+                    for section in soup.select(f"[data-test='section-{name}']")
+                ]
+                text = " ".join(" ".join(parts).split())
+                if text:
+                    descriptions[url] = text[:8000]
+        finally:
+            browser.close()
+    return descriptions
 
 
 def _salary(text: str) -> str:

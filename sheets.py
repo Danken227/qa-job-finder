@@ -208,7 +208,7 @@ class _Layout:
 
 COLUMN_PIXELS = {
     "Status": 130, "Firma": 170, "Stanowisko": 300, "Lokalizacja": 160,
-    "Dlaczego pasuje": 240, "Ocena wynagrodzenia": 200, "Wynagrodzenie": 170, "Link": 320,
+    "Manual / automat": 320, "Ocena wynagrodzenia": 200, "Wynagrodzenie": 170, "Link": 320,
 }
 
 

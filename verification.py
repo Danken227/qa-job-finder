@@ -9,8 +9,8 @@ import requests
 from bs4 import BeautifulSoup
 
 from collectors.base import JobOffer
+from collectors.careers import DESCRIPTION_LIMIT, main_text
 from collectors.parsing import json_ld_title, normalize_title, parse_json_ld_jobs
-from config.settings import MAX_REPORT_OFFERS
 
 
 REQUEST_HEADERS = {
@@ -73,23 +73,46 @@ class VerificationResult:
     offers: list[JobOffer]
     passed: int
     rejected: int
-    trimmed: int
 
 
 def verify_offers(offers: list[JobOffer]) -> VerificationResult:
-    """Sprawdza stronę każdej oferty i zwraca potwierdzone (do MAX_REPORT_OFFERS)."""
+    """Sprawdza stronę każdej oferty; przy okazji uzupełnia pełny opis oferty.
+
+    Limit liczby ofert w raporcie nakłada dopiero pipeline - po analizie opisu
+    (języki obce, automatyzacja), żeby odrzucone oferty nie zajmowały miejsc.
+    """
 
     with ThreadPoolExecutor(max_workers=6) as executor:
         checked = list(executor.map(_verify_offer, offers))
 
     passed_offers = [offer for offer in checked if offer.verified]
-    trimmed = max(0, len(passed_offers) - MAX_REPORT_OFFERS)
     return VerificationResult(
-        offers=passed_offers[:MAX_REPORT_OFFERS],
+        offers=passed_offers,
         passed=len(passed_offers),
         rejected=len(checked) - len(passed_offers),
-        trimmed=trimmed,
     )
+
+
+def page_description(html: str) -> str:
+    """Opis oferty ze strony: JSON-LD, a gdy jest skąpy - treść strony bez menu i stopki."""
+
+    description = ""
+    for posting in parse_json_ld_jobs(html):
+        text = BeautifulSoup(str(posting.get("description", "")), "lxml").get_text(" ", strip=True)
+        if len(text) > len(description):
+            description = text
+    if len(description.split()) < 80:
+        text = main_text(BeautifulSoup(html, "lxml"))
+        if len(text) > len(description):
+            description = text
+    return " ".join(description.split())[:DESCRIPTION_LIMIT]
+
+
+def _with_description(offer: JobOffer, html: str, verified: bool) -> JobOffer:
+    description = page_description(html)
+    if len(description) <= len(offer.description):
+        description = offer.description
+    return replace(offer, verified=verified, description=description)
 
 
 def _titles_match(offer_title: str, page_title: str) -> bool:
@@ -151,7 +174,7 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
         if offer.api_confirmed:
             # Strony ofert w ATS (np. Workday) renderują treść JavaScriptem,
             # więc w HTML nie ma tytułu. Aktywność potwierdziło już API.
-            return replace(offer, verified=True)
+            return _with_description(offer, response.text, True)
 
         candidates = [json_ld_title(posting) for posting in parse_json_ld_jobs(response.text)]
         page_title = soup.find("h1")
@@ -164,6 +187,6 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
             candidates.append(soup.title.get_text(" ", strip=True))
 
         matched = any(_titles_match(offer.title, candidate) for candidate in candidates if candidate)
-        return replace(offer, verified=matched)
+        return _with_description(offer, response.text, matched)
     except requests.RequestException:
         return replace(offer, verified=False)

@@ -56,6 +56,7 @@ REQUEST_HEADERS = {
 }
 
 CAREER_SOURCE = "Strona kariery"
+DESCRIPTION_LIMIT = 8000
 MAX_LISTING_PAGES = 3
 RENDER_TIMEOUT_MS = 30_000
 
@@ -437,6 +438,7 @@ class CareerPagesCollector(BaseCollector):
                 work_mode = normalize_work_mode(description)
             return replace(
                 offer,
+                description=description or offer.description,
                 title=title if contains_keyword(title, self.title_keywords) else offer.title,
                 location=location or offer.location,
                 work_mode=work_mode if work_mode != "Nie podano" else offer.work_mode,
@@ -448,11 +450,12 @@ class CareerPagesCollector(BaseCollector):
         soup = BeautifulSoup(response.text, "lxml")
         heading = soup.find("h1")
         heading_text = _clean_title(heading.get_text(" ", strip=True)) if heading else ""
-        page_text = _main_text(soup)
+        page_text = main_text(soup)
         location = _extract_location(page_text)
         work_mode = normalize_work_mode(page_text)
         return replace(
             offer,
+            description=page_text[:DESCRIPTION_LIMIT] if len(page_text) > len(offer.description) else offer.description,
             # Nagłówek bywa ogólny ("Kariera") - podmieniamy tylko na tytuł QA.
             title=heading_text if contains_keyword(heading_text, self.title_keywords) else offer.title,
             location=location if location != "Nie podano" else offer.location,
@@ -632,7 +635,7 @@ def _link_context(anchor) -> str:
     return context
 
 
-def _main_text(soup: BeautifulSoup) -> str:
+def main_text(soup: BeautifulSoup) -> str:
     """Treść oferty bez nawigacji, stopki i banerów cookies.
 
     Słowo "remote" w menu lub lista biur w stopce dawały wcześniej fałszywe
@@ -645,6 +648,11 @@ def _main_text(soup: BeautifulSoup) -> str:
         tag.decompose()
     for tag in soup.find_all(attrs={"id": re.compile("cookie|consent|gdpr", re.I)}):
         tag.decompose()
+    # Przełączniki języka strony ("Français (France)") udawały wymagania językowe.
+    language_picker = re.compile(r"lang(uage)?[-_ ]?(select|switch|picker|menu|chooser)", re.I)
+    for attribute in ("class", "id"):
+        for tag in soup.find_all(attrs={attribute: language_picker}):
+            tag.decompose()
     main = soup.find("main") or soup.find("article") or soup.body or soup
     return " ".join(main.stripped_strings)
 

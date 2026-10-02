@@ -6,11 +6,14 @@ Prawdziwy plik ``search_profile.json`` jest lokalny i ignorowany przez Git.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
-PROFILE_PATH = Path(__file__).with_name("search_profile.json")
+# QA_JOB_FINDER_PROFILE wskazuje inny plik profilu - używają go testy,
+# żeby nie zależeć od prywatnego search_profile.json.
+PROFILE_PATH = Path(os.environ.get("QA_JOB_FINDER_PROFILE") or Path(__file__).with_name("search_profile.json"))
 
 DEFAULT_PUBLIC_TITLE_KEYWORDS = (
     "tester",

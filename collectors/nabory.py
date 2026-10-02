@@ -128,6 +128,7 @@ class NaboryKprmCollector(BaseCollector):
             company_categories=("public",),
             expires_in=row.get("ważne do", ""),
             api_confirmed=True,
+            description=body,
         )
 
 
@@ -177,6 +178,7 @@ class GovPlJobOfferCollector(BaseCollector):
                     company_categories=("public",),
                     expires_in=str(item.get("submissionDeadline", "")),
                     api_confirmed=True,
+                    description=intro,
                 )
             )
         return offers

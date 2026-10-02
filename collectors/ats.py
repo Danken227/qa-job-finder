@@ -215,6 +215,7 @@ def _offer(company: Company, board: AtsBoard, *, title: str, url: str, location:
         skills=extract_skills(text),
         company_categories=company.categories,
         api_confirmed=True,
+        description=text[:8000],
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
+from analysis import required_foreign_languages
 from collectors.base import JobOffer
 from collectors.parsing import contains_keyword, fold_text, normalize_title
 from config.settings import (
@@ -27,6 +28,7 @@ MATCHING_SKILLS = PROFILE.matching_skills
 class FilterResult:
     offers: list[JobOffer]
     rejected_title: int = 0
+    rejected_language: int = 0
     rejected_automation: int = 0
     rejected_seniority: int = 0
     rejected_location: int = 0
@@ -83,11 +85,15 @@ def filter_offers_with_diagnostics(
     title_keywords = (*TITLE_KEYWORDS, *title_keywords)
     seniority_exclude = (*SENIORITY_OR_LEADERSHIP_TITLES, *seniority_exclude)
     shortlisted: list[JobOffer] = []
-    rejected_title = rejected_automation = rejected_seniority = 0
+    rejected_title = rejected_language = rejected_automation = rejected_seniority = 0
     rejected_location = rejected_salary = rejected_score = 0
     for offer in offers:
         if not contains_keyword(offer.title, title_keywords):
             rejected_title += 1
+            continue
+        # Wstępnie po tytule i opisie z listy; pełny opis sprawdza pipeline po weryfikacji.
+        if required_foreign_languages(offer.title, offer.description):
+            rejected_language += 1
             continue
         if _is_automation_first(offer.title):
             rejected_automation += 1
@@ -125,6 +131,7 @@ def filter_offers_with_diagnostics(
     return FilterResult(
         offers=result,
         rejected_title=rejected_title,
+        rejected_language=rejected_language,
         rejected_automation=rejected_automation,
         rejected_seniority=rejected_seniority,
         rejected_location=rejected_location,

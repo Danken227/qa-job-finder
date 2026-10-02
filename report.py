@@ -14,6 +14,7 @@ ma w bieżącym wyszukiwaniu, nie znikają - dostają "Nie" w kolumnie
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from html import escape
@@ -26,13 +27,27 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from collectors.base import JobOffer
-from collectors.parsing import normalize_title
+from collectors.parsing import fold_text, normalize_title
 
 STATUS_NEW = "Nowa"
 STATUSES = (STATUS_NEW, "Obejrzana", "CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie")
 # Statusy "załatwione" - wyszarzone w Excelu, zwinięte w HTML.
 DONE_STATUSES = ("CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie")
 STATUS_ORDER = {status: index for index, status in enumerate(STATUSES)}
+
+# Wszystkie listy ofert (zakładka arkusza -> lokalny Excel). Status tej samej
+# oferty jest wspólny dla wszystkich zakładek.
+REPORT_TABS = {
+    "Portale": Path("reports/portals/portals_report.xlsx"),
+    "Firmy": Path("reports/companies/company_report.xlsx"),
+    "Budżetówka": Path("reports/public/public_report.xlsx"),
+}
+# Formy prawne i dopiski pomijane przy porównywaniu nazw firm między źródłami.
+COMPANY_NOISE = {
+    "sp", "z", "o", "oo", "s", "a", "sa", "spolka", "ograniczona", "odpowiedzialnoscia", "akcyjna",
+    "komandytowa", "k", "sk", "polska", "poland", "pl", "group", "grupa", "gmbh", "inc", "ltd", "llc",
+    "plc", "ag", "bv", "corp", "corporation", "co",
+}
 
 USER_COLUMNS = ("Status",)
 # Kolumna "Link" musi zostać (po niej rozpoznajemy oferty między uruchomieniami),
@@ -48,7 +63,7 @@ COLUMNS = (
     "Umowa",
     "Wynagrodzenie",
     "Ocena",
-    "Dlaczego pasuje",
+    "Manual / automat",
     "Ocena wynagrodzenia",
     "Źródło",
     "Pierwsze wykrycie",
@@ -58,7 +73,7 @@ COLUMNS = (
 )
 WIDTHS = {
     "Status": 16, "Priorytet": 18, "Firma": 24, "Stanowisko": 40, "Lokalizacja": 22,
-    "Model pracy": 13, "Umowa": 18, "Wynagrodzenie": 24, "Ocena": 8, "Dlaczego pasuje": 36,
+    "Model pracy": 13, "Umowa": 18, "Wynagrodzenie": 24, "Ocena": 8, "Manual / automat": 44,
     "Ocena wynagrodzenia": 30, "Źródło": 18, "Pierwsze wykrycie": 13, "Ostatnio widziana": 13,
     "W ostatnim wyszukiwaniu": 12, "Link": 60,
 }
@@ -111,7 +126,8 @@ def export(
                 store = None
     if previous is None:
         previous = _read_previous(excel_path)
-    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today, scope)
+    shared = _shared_statuses(sheet_tab, excel_path, store)
+    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today, scope, shared)
 
     try:
         _write_excel(rows, excel_path)
@@ -164,7 +180,6 @@ def _sheet_store():
 
 def _to_row(offer: JobOffer) -> dict[str, str]:
     priority = "🟢 Aplikuj" if offer.match_score >= 12 else "🟡 Warto rozważyć"
-    reasons = ", ".join(offer.match_reasons) or "Dopasowane stanowisko QA"
     score_on_ten = max(1, min(10, round(offer.match_score / 2)))
     return {
         "Priorytet": priority,
@@ -175,7 +190,7 @@ def _to_row(offer: JobOffer) -> dict[str, str]:
         "Umowa": ", ".join(offer.contract_types) or "Nie podano",
         "Wynagrodzenie": offer.salary or "Nie podano",
         "Ocena": f"{score_on_ten}/10",
-        "Dlaczego pasuje": reasons,
+        "Manual / automat": offer.work_summary or "brak danych w opisie",
         "Ocena wynagrodzenia": offer.salary_assessment,
         "Źródło": offer.source,
         "Link": offer.url,
@@ -186,6 +201,47 @@ def _to_row(offer: JobOffer) -> dict[str, str]:
 
 def _key(row: dict[str, str]) -> tuple[str, str]:
     return (str(row.get("Firma", "")).casefold().strip(), normalize_title(str(row.get("Stanowisko", ""))))
+
+
+def company_core(name: str) -> str:
+    """'Sii Polska Sp. z o.o.' -> 'sii' - do porównań nazw firm między źródłami."""
+
+    tokens = [token for token in re.split(r"[^a-z0-9]+", fold_text(name)) if token]
+    core = [token for token in tokens if token not in COMPANY_NOISE]
+    return " ".join(core or tokens)
+
+
+def _shared_key(row: dict[str, str]) -> tuple[str, str]:
+    return company_core(str(row.get("Firma", ""))), normalize_title(str(row.get("Stanowisko", "")))
+
+
+def _status_rank(status: str) -> int:
+    """Nowa < Obejrzana < załatwione (CV wysłane, Rozmowa, Odrzucona...)."""
+
+    if status in DONE_STATUSES:
+        return 2
+    return 1 if status and status != STATUS_NEW else 0
+
+
+def _shared_statuses(sheet_tab: str, excel_path: Path, store) -> dict:
+    """Statusy ofert z pozostałych list (link i firma+tytuł -> status)."""
+
+    shared: dict = {}
+    for tab, path in REPORT_TABS.items():
+        if tab == sheet_tab or path.resolve() == Path(excel_path).resolve():
+            continue
+        try:
+            rows = store.read_rows(tab) if store is not None else _read_previous(path)
+        except Exception:  # noqa: BLE001 - brak innej listy nie blokuje raportu
+            continue
+        for row in rows:
+            status = row.get("Status", "")
+            if _status_rank(status) == 0:
+                continue
+            for key in (row.get("Link", ""), _shared_key(row)):
+                if key and _status_rank(status) > _status_rank(shared.get(key, "")):
+                    shared[key] = status
+    return shared
 
 
 def _read_previous(path: Path) -> list[dict[str, str]]:
@@ -212,8 +268,13 @@ def _merge(
     current: list[dict[str, str]],
     today: str,
     scope: set[str] | None = None,
+    shared: dict | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    """Zwraca (wszystkie wiersze, oferty nowe w tym przebiegu)."""
+    """Zwraca (wszystkie wiersze, oferty nowe w tym przebiegu).
+
+    ``shared`` - statusy tej samej oferty z innych list: bardziej zaawansowany
+    status wygrywa (np. "CV wysłane" z zakładki Portale trafia do Firmy).
+    """
 
     by_url = {row["Link"]: row for row in previous}
     by_key = {_key(row): row for row in previous}
@@ -247,6 +308,10 @@ def _merge(
 
     # Najpierw najnowsze wykrycia, potem (sortowanie stabilne) aktywne i
     # niezałatwione na górze.
+    for row in rows:
+        other = (shared or {}).get(row.get("Link", "")) or (shared or {}).get(_shared_key(row), "")
+        if _status_rank(other) > _status_rank(row.get("Status", "")):
+            row["Status"] = other
     rows.sort(key=lambda row: row.get("Pierwsze wykrycie", ""), reverse=True)
     rows.sort(
         key=lambda row: (
@@ -324,7 +389,7 @@ def _write_excel(rows: list[dict[str, str]], path: Path) -> None:
 # --- HTML --------------------------------------------------------------------
 
 HTML_COLUMNS = ("Status", "Priorytet", "Firma", "Stanowisko", "Lokalizacja", "Model pracy", "Umowa",
-                "Wynagrodzenie", "Ocena", "Dlaczego pasuje", "Pierwsze wykrycie")
+                "Wynagrodzenie", "Ocena", "Manual / automat", "Pierwsze wykrycie")
 
 
 def _write_html(rows: list[dict[str, str]], html_path: Path, title: str, today: str, sheet_url: str = "") -> None:

@@ -25,6 +25,12 @@ class JobOffer:
     # Oferta pochodzi z publicznego API systemu rekrutacyjnego (ATS), więc jej
     # tytuł i aktywność potwierdza samo API - strona oferty bywa renderowana JS.
     api_confirmed: bool = False
+    # Pełny opis oferty (pobierany przy weryfikacji) - do analizy języków
+    # i charakteru pracy; nie trafia do raportu.
+    description: str = ""
+    # Udział testów manualnych 0-100 (None = za mało informacji w opisie).
+    manual_share: int | None = None
+    work_summary: str = ""
 
 
 class BaseCollector:

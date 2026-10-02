@@ -1,0 +1,31 @@
+{
+  "location": {
+    "preferred_city": "Wrocław",
+    "preferred_city_slug": "wroclaw",
+    "city_aliases": ["Breslau"],
+    "country": "Poland",
+    "allow_remote": true,
+    "allow_hybrid_outside_preferred_city": false
+  },
+  "salary": {
+    "min_uop_gross_pln": 9000,
+    "min_b2b_hourly_pln": 80,
+    "preferred_b2b_hourly_pln": 110,
+    "include_offers_without_salary": true
+  },
+  "job_titles": {
+    "include": ["manual", "tester", "qa", "quality assurance", "test engineer"],
+    "automation_first_exclude": ["automat", "automation", "sdet"],
+    "seniority_exclude": ["architect", "principal", "manager", "lead", "head of"]
+  },
+  "matching_skills": [
+    {"name": "Manual Testing", "points": 3},
+    {"name": "SQL", "points": 2},
+    {"name": "Jira", "points": 1}
+  ],
+  "filtering": {
+    "min_match_score": 1,
+    "candidates_for_verification": 30,
+    "max_report_offers": 30
+  }
+}

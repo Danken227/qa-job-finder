@@ -17,13 +17,17 @@ except ImportError:  # pragma: no cover - działa też bez truststore, tylko z b
 
 import argparse
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from analysis import required_foreign_languages, work_profile
 
 from collectors.base import JobOffer
 from collectors.careers import CareerPagesCollector
+from collectors.pracuj import fetch_descriptions
 from config.companies_loader import CATEGORY_LABELS
 from filter import deduplicate_offers, filter_offers_with_diagnostics
+from config.settings import MAX_REPORT_OFFERS
 from report import export
 from verification import verify_offers
 
@@ -75,15 +79,23 @@ def build_report(
     if unique:
         print(
             "Odrzucono przez filtry: "
-            f"tytuł {filtering.rejected_title}, automatyzacja {filtering.rejected_automation}, "
+            f"tytuł {filtering.rejected_title}, język obcy {filtering.rejected_language}, "
+            f"automatyzacja {filtering.rejected_automation}, "
             f"poziom stanowiska {filtering.rejected_seniority}, lokalizacja {filtering.rejected_location}, "
             f"wynagrodzenie {filtering.rejected_salary}, dopasowanie {filtering.rejected_score}."
         )
 
     result = verify_offers(filtering.offers)
-    exported = export(result.offers, reports_dir=reports_dir, basename=basename, title=title, sheet_tab=sheet_tab, scope=scope)
-    print(f"Zweryfikowano: {result.passed}, odrzucono: {result.rejected}, obcięto limitem: {result.trimmed}.")
-    print(f"W tym wyszukiwaniu: {len(result.offers)} ofert, nowych: {len(exported.new_rows)}.")
+    print(f"Zweryfikowano linki: {result.passed}, odrzucono: {result.rejected}.")
+    analysed = analyse_descriptions(result.offers)
+    final = analysed.offers[:MAX_REPORT_OFFERS]
+    print(
+        f"Analiza opisów: odrzucono {analysed.rejected_language} (inny język obcy niż angielski) "
+        f"i {analysed.rejected_automation} (głównie automatyzacja); "
+        f"obcięto limitem: {max(0, len(analysed.offers) - MAX_REPORT_OFFERS)}."
+    )
+    exported = export(final, reports_dir=reports_dir, basename=basename, title=title, sheet_tab=sheet_tab, scope=scope)
+    print(f"W tym wyszukiwaniu: {len(final)} ofert, nowych: {len(exported.new_rows)}.")
     print(f"Excel: {exported.excel_path}")
     print(f"HTML:  {exported.html_path}")
     if exported.sheet_url:
@@ -93,7 +105,7 @@ def build_report(
     return ReportResult(
         name,
         len(offers),
-        len(result.offers),
+        len(final),
         exported.excel_path,
         exported.html_path,
         exported.new_rows,
@@ -101,6 +113,47 @@ def build_report(
         [*(problems or []), *exported.warnings],
         exported.sheet_url,
     )
+
+
+@dataclass(slots=True)
+class AnalysisResult:
+    offers: list[JobOffer]
+    rejected_language: int = 0
+    rejected_automation: int = 0
+
+
+def analyse_descriptions(offers: list[JobOffer]) -> AnalysisResult:
+    """Na pełnych opisach: odrzuca wymagane języki obce i oferty głównie
+    automatyzujące, liczy udział testów manualnych i koryguje ocenę."""
+
+    # Strony Pracuj.pl są za Cloudflare - weryfikacja nie pobrała ich opisu.
+    missing = [offer.url for offer in offers if offer.source == "Pracuj.pl" and len(offer.description.split()) < 120]
+    if missing:
+        try:
+            descriptions = fetch_descriptions(missing)
+        except Exception as error:  # noqa: BLE001 - analiza zadziała na skróconym opisie
+            print(f"Pracuj.pl: nie udało się pobrać pełnych opisów ({error}).")
+            descriptions = {}
+        offers = [replace(offer, description=descriptions.get(offer.url, offer.description)) for offer in offers]
+
+    result = AnalysisResult([])
+    for offer in offers:
+        if required_foreign_languages(offer.title, offer.description):
+            result.rejected_language += 1
+            continue
+        profile = work_profile(offer.title, offer.description)
+        if profile.is_automation_first:
+            result.rejected_automation += 1
+            continue
+        score = offer.match_score
+        if profile.manual_share is not None:
+            # 100% manual: +5, 50/50: 0, 0% manual: -5.
+            score += round((profile.manual_share - 50) / 10)
+        result.offers.append(replace(
+            offer, match_score=score, manual_share=profile.manual_share, work_summary=profile.summary
+        ))
+    result.offers.sort(key=lambda item: (item.match_score, item.work_mode.casefold() == "remote"), reverse=True)
+    return result
 
 
 # --- Wspólne elementy skryptów stron karier (firmy i budżetówka) -------------
