@@ -11,6 +11,8 @@ opcjonalne:
   teamtailor, recruitee, ashby, successfactors, phenom;
 - ``category`` - jeden z kluczy ``CATEGORY_LABELS`` (np. ``erp_wms``);
 - ``enabled`` - ``false`` wyłącza firmę bez usuwania jej z bazy;
+- ``render`` - ``true``: strona ładuje oferty JavaScriptem, renderuj ją
+  w Chromium przy każdym przebiegu;
 - ``notes`` - komentarz dla człowieka, ignorowany przez program.
 """
 
@@ -53,6 +55,9 @@ class Company:
     jobs_url: str = ""
     ats: tuple[AtsSpec, ...] = ()
     enabled: bool = True
+    # Strona ładuje oferty JavaScriptem bez API - renderuj w Chromium przy
+    # każdym przebiegu (bez tego tylko z opcją --render).
+    render: bool = False
 
 
 def load_companies(path: Path = COMPANIES_PATH) -> list[Company]:
@@ -72,6 +77,7 @@ def load_companies(path: Path = COMPANIES_PATH) -> list[Company]:
                 jobs_url=entry.get("jobs_url", ""),
                 ats=_parse_ats(entry.get("ats")),
                 enabled=bool(entry.get("enabled", True)),
+                render=bool(entry.get("render", False)),
             )
         )
     return companies

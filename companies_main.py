@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from collectors.careers import CareerPagesCollector
+from config.profile import PROFILE
 from pipeline import (
     ReportResult,
     add_career_arguments,
@@ -28,8 +29,10 @@ def run(
     verbose: bool = False,
     categories: tuple[str, ...] = (),
 ) -> ReportResult:
+    # Polskie tytuły ("Specjalista ds. Testów") obok angielskich słów z profilu.
     collector = CareerPagesCollector(
-        tiers=tiers, company_names=company_names, render=render, categories=categories
+        tiers=tiers, company_names=company_names, render=render, categories=categories,
+        title_keywords=PROFILE.public_title_keywords,
     )
     offers = collector.collect()
     print_career_scan(collector, verbose, label="Firmy")
@@ -39,6 +42,8 @@ def run(
         reports_dir=REPORTS_DIR,
         basename=BASENAME,
         title="Raport ofert QA – strony karier firm",
+        title_keywords=PROFILE.public_title_keywords,
+        seniority_exclude=PROFILE.public_seniority_exclude,
         sheet_tab=SHEET_TAB,
         problems=career_problems(collector),
         # Przy --company / --tiers S oferty niesprawdzanych firm nie są oznaczane jako zniknięte.

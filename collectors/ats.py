@@ -82,6 +82,8 @@ _URL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("ashby", re.compile(r"https?://jobs\.ashbyhq\.com/([\w.-]+)", re.I)),
     ("traffit", re.compile(r"https?://([\w-]+)\.traffit\.com/public/", re.I)),
     ("teamtailor", re.compile(r"https?://([\w-]+)\.teamtailor\.com", re.I)),
+    ("oracle_hcm", re.compile(
+        r"https?://([\w.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/[a-z]{2}(?:-[A-Za-z]{2})?/sites/(\w+)", re.I)),
     ("erecruiter", re.compile(r"https?://skk\.erecruiter\.pl/(?:Code|GetHtml|Offer)\.as[hp]x\?[^\"'<>\s]*?cfg=([0-9a-f]{32})", re.I)),
 )
 _IGNORED_KEYS = {"www", "app", "api", "assets", "cdn", "static", "embed", "wday", "subscriptions", "login"}
@@ -91,6 +93,9 @@ def board_from_url(url: str, type_hint: str = "") -> AtsBoard | None:
     """Rozpoznaje ATS po adresie tablicy ofert (lub typie podanym w bazie)."""
 
     url = unescape(url).replace("\\/", "/").rstrip("\\")
+    if type_hint in ("epam", "capgemini"):
+        # Własne API firm - adres służy tylko jako etykieta.
+        return AtsBoard(type_hint, urlsplit(url).netloc.casefold(), {})
     if type_hint in ("teamtailor", "successfactors", "phenom"):
         parts = urlsplit(url)
         base = f"{parts.scheme or 'https'}://{parts.netloc}"
@@ -122,6 +127,9 @@ def board_from_url(url: str, type_hint: str = "") -> AtsBoard | None:
             return _board(ats_type, token, base=f"https://{token}.teamtailor.com")
         if ats_type == "erecruiter":
             return _board(ats_type, match.group(1).casefold())
+        if ats_type == "oracle_hcm":
+            host, site = match.groups()
+            return AtsBoard(ats_type, f"{host}/{site}", {"host": host, "site": site})
         return _board(ats_type, match.group(1))
     return None
 
@@ -219,8 +227,8 @@ def _offer(company: Company, board: AtsBoard, *, title: str, url: str, location:
     )
 
 
-def _get_json(session: requests.Session, url: str, **kwargs):
-    response = session.get(url, headers=REQUEST_HEADERS, timeout=TIMEOUT, **kwargs)
+def _get_json(session: requests.Session, url: str, headers: dict | None = None, **kwargs):
+    response = session.get(url, headers=headers or REQUEST_HEADERS, timeout=TIMEOUT, **kwargs)
     response.raise_for_status()
     return response.json()
 
@@ -639,6 +647,114 @@ def _erecruiter(session, board, company, keywords):
     return offers
 
 
+def _oracle_hcm(session, board, company, keywords):
+    """Oracle Recruiting Cloud (HCM) - np. Nokia. Wyszukiwanie po frazie i kraju."""
+
+    host, site = board.params["host"], board.params["site"]
+    api = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    offers: dict[str, JobOffer] = {}
+    for keyword in PROFILE.career_search_keywords:
+        for offset in range(0, MAX_RESULTS_PER_KEYWORD, 50):
+            finder = (f'findReqs;siteNumber={site},limit=50,offset={offset},keyword="{keyword}",'
+                      f"location={PROFILE.country},sortBy=RELEVANCY")
+            payload = _get_json(session, api, params={
+                "onlyData": "true", "expand": "requisitionList.secondaryLocations", "finder": finder})
+            items = (payload.get("items") or [{}])[0]
+            jobs = items.get("requisitionList") or []
+            for job in jobs:
+                locations = [job.get("PrimaryLocation", "")] + [
+                    item.get("Name", "") for item in job.get("secondaryLocations") or []]
+                workplace = str(job.get("WorkplaceType") or "").casefold()
+                url = f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{job.get('Id')}"
+                offers.setdefault(url, _offer(
+                    company, board,
+                    title=job.get("Title", ""),
+                    url=url,
+                    location="; ".join(dict.fromkeys(location for location in locations if location)),
+                    work_mode=work_mode_from_flags("remote" in workplace, "hybrid" in workplace),
+                    description=str(job.get("ShortDescriptionStr") or ""),
+                ))
+            if len(jobs) < 50:
+                break
+    return list(offers.values())
+
+
+EPAM_API = "https://careers.epam.com/api/jobs/v2/search/careers-i18n"
+
+
+def _epam(session, board, company, keywords):
+    """Własne API EPAM (wymaga nagłówka x-anywhere-tenant, fraza w parametrze q)."""
+
+    headers = {**REQUEST_HEADERS, "Referer": "https://careers.epam.com/en/jobs", "x-anywhere-tenant": "anywhere"}
+    base = {"lang": "en", "websiteLocale": "en-us", "sortBy": "relevance;relocation=asc"}
+    # Kraj filtrujemy po identyfikatorze z listy facetów.
+    facets = _get_json(session, EPAM_API, params={**base, "from": 0, "size": 1}, headers=headers)
+    names = {fold_text(name) for name in _country_names()}
+    country_id = next((item.get("id") for item in (facets.get("data") or {}).get("facets", {}).get("country", [])
+                       if fold_text(str(item.get("key", ""))) in names), None)
+    offers: dict[str, JobOffer] = {}
+    for keyword in PROFILE.career_search_keywords:
+        for start in range(0, MAX_RESULTS_PER_KEYWORD, 50):
+            params = {**base, "from": start, "size": 50, "q": keyword}
+            if country_id:
+                params["facets"] = f"country={country_id}"
+            data = _get_json(session, EPAM_API, params=params, headers=headers).get("data") or {}
+            jobs = data.get("jobs") or []
+            for job in jobs:
+                url = "https://careers.epam.com" + str((job.get("seo") or {}).get("url") or "")
+                cities = [str(item.get("name", "")) for item in _as_list(job.get("city")) if isinstance(item, dict)]
+                countries = [str(item.get("name", "")) for item in _as_list(job.get("country")) if isinstance(item, dict)]
+                vacancy = str(job.get("vacancy_type") or "").casefold()
+                offers.setdefault(url, _offer(
+                    company, board,
+                    title=job.get("name", ""),
+                    url=url,
+                    location="; ".join(dict.fromkeys(cities + countries)),
+                    work_mode=work_mode_from_flags("remote" in vacancy, "hybrid" in vacancy),
+                    description=str(job.get("description") or job.get("text") or ""),
+                ))
+            if start + 50 >= int(data.get("total") or 0):
+                break
+    return list(offers.values())
+
+
+CAPGEMINI_API = "https://cg-jobstream-api.azurewebsites.net/api/job-search"
+
+
+def _capgemini(session, board, company, keywords):
+    """Własne API ofert Capgemini (country_code np. pl-pl)."""
+
+    code = _country_code()
+    offers: dict[str, JobOffer] = {}
+    for keyword in PROFILE.career_search_keywords:
+        payload = _get_json(session, CAPGEMINI_API, params={
+            "page": 1, "size": MAX_RESULTS_PER_KEYWORD, "country_code": f"{code}-{code}" if code else "",
+            "search": keyword})
+        for job in payload.get("data") or []:
+            url = str(job.get("apply_job_url") or "")
+            if not url:
+                continue
+            # API filtruje po kraju, a lokalizacja to sama lista miast - dopisujemy kraj.
+            location = str(job.get("location") or "")
+            description = str(job.get("description_stripped") or job.get("description") or "")
+            offers.setdefault(url, _offer(
+                company, board,
+                title=job.get("title", ""),
+                url=url,
+                location=f"{location}; {PROFILE.country}" if location else PROFILE.country,
+                work_mode=normalize_work_mode(description),
+                description=description,
+                contracts=normalize_contracts(str(job.get("contract_type") or "")),
+            ))
+    return list(offers.values())
+
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
 def _phenom_prefix(path: str) -> str:
     segments = [segment for segment in path.split("/") if segment]
     if len(segments) >= 2 and len(segments[1]) == 2:
@@ -659,6 +775,9 @@ _FETCHERS = {
     "successfactors": _successfactors,
     "phenom": _phenom,
     "erecruiter": _erecruiter,
+    "oracle_hcm": _oracle_hcm,
+    "epam": _epam,
+    "capgemini": _capgemini,
 }
 
 SUPPORTED_ATS = tuple(_FETCHERS)

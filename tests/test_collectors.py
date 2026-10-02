@@ -112,3 +112,29 @@ def test_rocketjobs_card_fields_by_icon():
 
 def test_column_letter():
     assert [_column_letter(n) for n in (1, 16, 26, 27)] == ["A", "P", "Z", "AA"]
+
+
+def test_new_platforms_are_recognised():
+    oracle = board_from_url("https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1")
+    assert (oracle.type, oracle.params) == ("oracle_hcm", {"host": "fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com",
+                                                           "site": "CX_1"})
+    assert board_from_url("https://careers.epam.com", "epam").type == "epam"
+    assert board_from_url("https://www.capgemini.com/pl-pl/kariera/", "capgemini").type == "capgemini"
+
+
+ASSECO_CARD = """
+<a class="glowny-aplikuj" href="/Oferta/2a96a60c">
+  <style>.Lokalizacja-element { min-width: 0; }</style>
+  <div class="Branza-element"><span>Analiza</span> | <span>Testowanie</span></div>
+  <div class="RekrutacjaNazwa-element">Tester Systemowy/Analityk</div>
+  <div class="Lokalizacja-element"><span>Wrocław</span></div>
+  <div class="box-aplikuj">Aplikuj</div>
+</a>
+"""
+
+
+def test_card_title_from_title_class_without_css_and_apply_button():
+    from collectors.careers import _anchor_title
+
+    anchor = BeautifulSoup(ASSECO_CARD, "lxml").select_one("a")
+    assert _anchor_title(anchor) == "Tester Systemowy/Analityk"

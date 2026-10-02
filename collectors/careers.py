@@ -137,6 +137,7 @@ SKIP_LINK_TEXT = (
     "podcast",
 )
 
+TITLE_CLASS = re.compile(r"title|position|stanowisk|nazwa|job-?name|offer-?name", re.I)
 GENERIC_LINK_TEXT = ("zobacz więcej", "więcej", "szczegóły", "sprawdź", "read more", "see more",
                      "learn more", "more", "details", "view job", "zobacz ofertę")
 
@@ -253,8 +254,8 @@ class CareerPagesCollector(BaseCollector):
         with ThreadPoolExecutor(max_workers=6) as executor:
             self.scans = list(executor.map(self._scan_company, companies))
 
-        if self.render:
-            self._render_empty_scans()
+        # Renderujemy strony z "render": true w bazie, a z --render wszystkie puste.
+        self._render_empty_scans()
 
         offers: list[JobOffer] = []
         for scan in self.scans:
@@ -374,7 +375,10 @@ class CareerPagesCollector(BaseCollector):
     # --- Renderowanie JS ------------------------------------------------------
 
     def _render_empty_scans(self) -> None:
-        targets = [scan for scan in self.scans if not scan.error and not scan.offers and not scan.boards]
+        targets = [
+            scan for scan in self.scans
+            if not scan.error and not scan.offers and not scan.boards and (self.render or scan.company.render)
+        ]
         if not targets:
             return
         try:
@@ -406,7 +410,13 @@ class CareerPagesCollector(BaseCollector):
                     scan.warnings.append(f"renderowanie nieudane ({str(error).splitlines()[0]})")
                     continue
                 boards: dict[str, AtsBoard] = {}
+                before = len(scan.offers)
                 self._scan_html(scan, html, page.url, boards, follow_listings=False, method_suffix=" (render)")
+                # Oferty z właśnie wyrenderowanej listy są aktualne. Strony
+                # pojedynczych ofert też bywają tylko-JS, więc zwykła weryfikacja
+                # nie znalazłaby na nich tytułu.
+                for offer in scan.offers[before:]:
+                    offer.api_confirmed = True
                 for board in boards.values():
                     try:
                         scan.add(board.type, fetch_board(self.session, board, scan.company, self.title_keywords))
@@ -549,10 +559,15 @@ def _offers_from_links(
 def _anchor_title(anchor) -> str:
     """Tytuł oferty z linku; karty ofert często mają w linku też miasto i opis."""
 
-    heading = anchor.find(["h1", "h2", "h3", "h4", "h5", "h6"]) or anchor.find(class_=re.compile("title", re.I))
+    # Karta z nagłówkiem albo elementem o "tytułowej" klasie (np. Asseco:
+    # "RekrutacjaNazwa-element"). Bez tego tytułem byłby cały tekst karty,
+    # łącznie z przyciskiem "Aplikuj" i osadzonym CSS.
+    heading = anchor.find(["h1", "h2", "h3", "h4", "h5", "h6"]) or anchor.find(class_=TITLE_CLASS)
     if heading is not None:
         text = heading.get_text(" ", strip=True)
     else:
+        for tag in anchor.find_all(["style", "script"]):
+            tag.decompose()
         text = anchor.get_text(" ", strip=True)
     if not text:
         text = anchor.get("aria-label") or anchor.get("title") or ""

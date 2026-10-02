@@ -178,11 +178,11 @@ Pola opcjonalne (starsze profile działają bez nich):
 - `job_titles.career_search_keywords` — frazy wysyłane do wyszukiwarek ATS
   (Workday, SmartRecruiters, SuccessFactors, Phenom); domyślnie
   `["QA", "tester", "testów", "test engineer"]`;
-- `job_titles.public_sector_include` — dodatkowe słowa tytułów w budżetówce,
-  gdzie stanowiska są urzędowe („Specjalista ds. testów”); domyślnie m.in.
-  `tester`, `testów`, `testowania`, `jakości oprogramowania`;
-- `job_titles.public_sector_seniority_exclude` — stanowiska kierownicze do
-  pominięcia w budżetówce; domyślnie `kierownik`, `naczelnik`, `dyrektor`.
+- `job_titles.public_sector_include` — polskie słowa tytułów („Specjalista
+  ds. testów”), używane we wszystkich trzech wyszukiwaniach obok `include`;
+  domyślnie m.in. `tester`, `testów`, `testowania`, `jakości oprogramowania`;
+- `job_titles.public_sector_seniority_exclude` — polskie stanowiska kierownicze
+  do pominięcia; domyślnie `kierownik`, `naczelnik`, `dyrektor`.
 
 `config/search_profile.json` jest ignorowany przez Git. Nie dodawaj go ręcznie do
 commita. Do repozytorium trafia tylko `config/search_profile.example.json`, który
@@ -195,7 +195,8 @@ jest neutralnym szablonem bez Twoich danych.
 1. pobierają oferty z publicznego API systemu rekrutacyjnego (ATS) wskazanego
    w bazie albo wykrytego w kodzie strony — obsługiwane: Workday,
    SmartRecruiters, Greenhouse, Lever, Workable, Teamtailor, Recruitee, Ashby,
-   Traffit, eRecruiter, SAP SuccessFactors i Phenom;
+   Traffit, eRecruiter, SAP SuccessFactors, Phenom i Oracle HCM, a także
+   własne API EPAM i Capgemini;
 2. czytają oferty opublikowane jako schema.org/JobPosting (JSON-LD);
 3. szukają na stronie linków do ofert z pasującym tytułem;
 4. przechodzą na podstrony typu „Oferty pracy” / „Open positions”;
@@ -245,7 +246,9 @@ Pola opcjonalne:
 - `ats` — tablica ofert w ATS, np. `"https://apply.workable.com/firma/"`,
   `"https://firma.wd3.myworkdayjobs.com/External"` albo — dla platform pod
   domeną firmy — `{"type": "teamtailor", "url": "https://jobs.firma.com"}`
-  (typy `teamtailor`, `successfactors`, `phenom`). Można podać listę;
+  (typy `teamtailor`, `successfactors`, `phenom`, `epam`, `capgemini`). Można podać listę;
+- `render: true` — strona ładuje oferty JavaScriptem i nie ma API (np. Asseco):
+  program renderuje ją w Chromium przy każdym przebiegu;
 - `enabled: false` — wyłącza wpis bez usuwania go z bazy;
 - `notes` — komentarz, ignorowany przez program.
 

@@ -7,6 +7,7 @@ from collectors.linkedin import LinkedInCollector
 from collectors.nofluffjobs import NoFluffJobsCollector
 from collectors.pracuj import PracujCollector
 from collectors.rocketjobs import RocketJobsCollector
+from config.profile import PROFILE
 from pipeline import ReportResult, build_report, configure_console
 
 REPORTS_DIR = "reports/portals"
@@ -46,6 +47,9 @@ def run() -> ReportResult:
         reports_dir=REPORTS_DIR,
         basename=BASENAME,
         title="Raport ofert QA – portale",
+        # Polskie tytuły ("Specjalista ds. Testów") obok angielskich słów z profilu.
+        title_keywords=PROFILE.public_title_keywords,
+        seniority_exclude=PROFILE.public_seniority_exclude,
         sheet_tab=SHEET_TAB,
         problems=problems,
     )
