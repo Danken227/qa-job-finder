@@ -1,7 +1,8 @@
 requests
 beautifulsoup4
 playwright
-pandas
 openpyxl
 jinja2
 lxml
+truststore
+keyring

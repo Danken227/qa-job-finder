@@ -1,15 +1,18 @@
-"""Punkt wejścia programu."""
+"""Skrypt 1: oferty QA z portali (JustJoinIT, No Fluff Jobs, RocketJobs, LinkedIn)."""
+
+from __future__ import annotations
 
 from collectors.justjoinit import JustJoinItCollector
 from collectors.linkedin import LinkedInCollector
 from collectors.nofluffjobs import NoFluffJobsCollector
 from collectors.rocketjobs import RocketJobsCollector
-from filter import deduplicate_offers, filter_offers
-from report import export
-from verification import verify_offers
+from pipeline import ReportResult, build_report, configure_console
+
+REPORTS_DIR = "reports/portals"
+BASENAME = "portals_report"
 
 
-def main() -> None:
+def run() -> ReportResult:
     collected = []
     collectors = (
         JustJoinItCollector(),
@@ -30,21 +33,18 @@ def main() -> None:
     if not collected:
         raise RuntimeError("Żadne źródło nie zwróciło ofert.")
 
-    before_dedup = len(collected)
-    collected = deduplicate_offers(collected)
-    if before_dedup != len(collected):
-        print(f"Deduplikacja: {before_dedup} → {len(collected)} unikalnych ofert.")
+    return build_report(
+        collected,
+        name="Portale",
+        reports_dir=REPORTS_DIR,
+        basename=BASENAME,
+        title="Raport ofert QA – portale",
+    )
 
-    candidates = filter_offers(collected)
-    print(f"Po filtrach: {len(candidates)} ofert do sprawdzenia.")
 
-    result = verify_offers(candidates)
-    excel_path, html_path = export(result.offers)
-
-    print(f"Zweryfikowano: {result.passed}, odrzucono: {result.rejected}, obcięto limitem: {result.trimmed}")
-    print(f"Zapisano w raporcie: {len(result.offers)} ofert.")
-    print(f"Excel: {excel_path}")
-    print(f"HTML:  {html_path}")
+def main() -> None:
+    configure_console()
+    run()
 
 
 if __name__ == "__main__":

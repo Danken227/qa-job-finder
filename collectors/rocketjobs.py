@@ -1,4 +1,11 @@
-"""Collector publicznych ofert z RocketJobs."""
+"""Collector publicznych ofert z RocketJobs.
+
+RocketJobs nie ma już kategorii w adresie, a lista miasta zawiera wszystkie
+branże (np. farmację), więc oferty QA ginęłyby w pierwszych 50 kartach.
+Szukamy więc po frazach z profilu (``?keyword=QA``) - osobno dla miasta
+i pracy zdalnej. Klasy CSS na stronie są generowane (MUI), dlatego pola karty
+rozpoznajemy po ikonach: budynek = firma, pinezka = lokalizacja.
+"""
 
 from __future__ import annotations
 
@@ -16,28 +23,35 @@ REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
 }
+BASE_URL = "https://rocketjobs.pl/oferty-pracy"
 
 
 class RocketJobsCollector(BaseCollector):
-    """Pobiera publiczne karty z list Wrocław i praca zdalna."""
+    """Pobiera karty ofert z wyszukiwania RocketJobs dla miasta i pracy zdalnej."""
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
 
     def collect(self) -> list[JobOffer]:
-        offers: dict[str, JobOffer] = {}
-        listing_urls = [f"https://rocketjobs.pl/oferty-pracy/{PROFILE.preferred_city_slug}"]
+        locations = [PROFILE.preferred_city_slug]
         if PROFILE.allow_remote:
-            listing_urls.append("https://rocketjobs.pl/oferty-pracy/praca-zdalna")
+            locations.append("praca-zdalna")
 
-        for listing_url in listing_urls:
-            response = self.session.get(listing_url, headers=REQUEST_HEADERS, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "lxml")
-            for link in soup.select("a.offer-card[href*='/oferta-pracy/']"):
-                offer = self._parse_card(link)
-                if offer:
-                    offers[offer.url] = offer
+        offers: dict[str, JobOffer] = {}
+        for location in locations:
+            for keyword in PROFILE.career_search_keywords:
+                response = self.session.get(
+                    f"{BASE_URL}/{location}",
+                    params={"keyword": keyword},
+                    headers=REQUEST_HEADERS,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, "lxml")
+                for link in soup.select("a.offer-card[href*='/oferta-pracy/']"):
+                    offer = self._parse_card(link)
+                    if offer:
+                        offers.setdefault(offer.url, offer)
 
         if not offers:
             raise RuntimeError("RocketJobs returned no offer cards; the page structure may have changed.")
@@ -45,28 +59,21 @@ class RocketJobsCollector(BaseCollector):
 
     @staticmethod
     def _parse_card(link) -> JobOffer | None:
-        card = link.find_parent("li")
+        # Link to przezroczysta warstwa nad kartą - treść jest w rodzeństwie.
+        card = link.parent
         if card is None:
             return None
 
-        title_element = card.select_one("a.offer_list_offer_title_link")
-        if title_element is None:
-            return None
-        title = title_element.get_text(" ", strip=True)
+        heading = card.find(["h2", "h3", "h4"])
+        title = heading.get_text(" ", strip=True) if heading else ""
+        if not title:
+            title = re.sub(r"^Zobacz ofertę\s*", "", link.get("title", "")).strip()
         if not title:
             return None
 
         logo = card.select_one("object img[alt]")
-        company = logo.get("alt", "") if logo else "Nie podano"
-        paragraphs = [item.get_text(" ", strip=True) for item in card.select("p")]
-        location = next(
-            (
-                paragraph
-                for paragraph in paragraphs
-                if paragraph and paragraph != company and not re.search(r"praca|zdalnie|hybrydowo|stacjonarnie", paragraph, re.I)
-            ),
-            "Nie podano",
-        )
+        company = _field_by_icon(card, "lucide-building") or (logo.get("alt", "") if logo else "") or "Nie podano"
+        location = _field_by_icon(card, "lucide-map-pin") or "Nie podano"
         card_text = " ".join(card.stripped_strings)
 
         return JobOffer(
@@ -81,3 +88,17 @@ class RocketJobsCollector(BaseCollector):
             skills=extract_skills(card_text),
             expires_in="Nowa" if "nowa" in card_text.casefold() else "",
         )
+
+
+def _field_by_icon(card, icon_class: str) -> str:
+    """Tekst akapitu stojącego obok ikony o danej klasie (np. pinezki)."""
+
+    for icon in card.select(f"svg.{icon_class}"):
+        container = icon.find_parent("div")
+        row = container.parent if container is not None else None
+        paragraph = row.find("p") if row is not None else None
+        if paragraph is not None:
+            text = paragraph.get_text(" ", strip=True)
+            if text:
+                return text
+    return ""

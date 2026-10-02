@@ -22,6 +22,9 @@ class JobOffer:
     match_reasons: tuple[str, ...] = field(default_factory=tuple)
     salary_assessment: str = ""
     verified: bool = False
+    # Oferta pochodzi z publicznego API systemu rekrutacyjnego (ATS), więc jej
+    # tytuł i aktywność potwierdza samo API - strona oferty bywa renderowana JS.
+    api_confirmed: bool = False
 
 
 class BaseCollector:

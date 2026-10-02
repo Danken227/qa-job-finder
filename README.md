@@ -1,20 +1,106 @@
 # QA Job Finder
 
-Program tworzy raport ofert QA według lokalnego profilu wyszukiwania. Twój profil,
+Program tworzy raporty ofert QA według lokalnego profilu wyszukiwania. Twój profil,
 wynagrodzenie, lokalizacja i umiejętności nie są częścią repozytorium.
 
-`main.py` pobiera publiczne oferty z JustJoinIT, No Fluff Jobs, RocketJobs oraz
-publicznych wyników LinkedIn Jobs. Każdy link jest otwierany i sprawdzany przed
-dodaniem do raportu.
+## Skrypty
 
-`companies_main.py` jest niezależnym monitorem oficjalnych stron karier firm.
-Baza znajduje się w `config/companies.json`; każda firma ma kategorię, priorytet,
-miasto i adres strony kariery. Parser wykrywa widoczne linki do ofert QA oraz
-najpopularniejsze zewnętrzne systemy rekrutacyjne (ATS).
+| Skrypt | Źródło ofert | Raport |
+|---|---|---|
+| `portals_main.py` | portale: JustJoinIT, No Fluff Jobs, RocketJobs, LinkedIn Jobs | `reports/portals/portals_report.*` |
+| `companies_main.py` | oficjalne strony karier firm z `config/companies.json` | `reports/companies/company_report.*` |
+| `public_main.py` | budżetówka: nabory.kprm.gov.pl, ogłoszenia gov.pl + instytucje z `config/public_institutions.json` | `reports/public/public_report.*` |
+| `run_all.py` | uruchamia trzy powyższe po kolei | każdy w swoim katalogu |
+
+Każdy raport powstaje w dwóch wersjach: `.xlsx` (Excel z klikalnymi linkami)
+i `.html` (przeglądarka, przycisk „Otwórz ofertę”). Wszystkie skrypty używają
+tych samych filtrów profilu, a każdy link jest otwierany i sprawdzany przed
+dodaniem do raportu. Program nie dopisuje ofert na siłę: jeśli mniej pozycji
+przejdzie filtry i kontrolę linków, raport będzie krótszy od limitu.
+
+## Lista ofert w Excelu (statusy)
+
+Plik `.xlsx` każdego raportu to trwała lista ofert. W pomarańczowych kolumnach
+wpisujesz swoje informacje:
+
+- **Status** — lista rozwijana: Nowa / Obejrzana / CV wysłane / Rozmowa /
+  Odrzucona / Nie interesuje mnie;
+- **Notatka** — dowolny tekst.
+
+Przy kolejnym uruchomieniu program wczytuje poprzedni plik i przenosi statusy
+i notatki (oferty dopasowuje po linku, a gdy link się zmieni — po firmie
+i tytule). Nowe oferty dostają status „Nowa” (zielone tło) i trafiają na
+górę. Oferty z wysłanym CV, odrzucone itp. są wyszarzone. Oferty, których nie
+ma w bieżącym wyszukiwaniu, nie są usuwane — mają „Nie” w kolumnie „W ostatnim
+wyszukiwaniu” i są przekreślone.
+
+**Zamknij plik w Excelu przed uruchomieniem skryptu.** Jeśli będzie otwarty,
+program zapisze kopię `… (kopia RRRR-MM-DD_GGMM).xlsx` i ostrzeże — statusy
+wpisane w kopii nie zostaną przeniesione.
+
+Raport `.html` pokazuje te same oferty: na górze do przejrzenia, niżej zwinięte
+„Załatwione” i „Nie ma ich w ostatnim wyszukiwaniu”.
+
+## Cotygodniowy raport mailem
+
+`run_all.py --email` po zakończeniu wysyła na Gmail trzy pliki Excel
+w załącznikach, a w treści listę nowych ofert.
+
+Jednorazowa konfiguracja:
+
+1. Włącz weryfikację dwuetapową na koncie Google i utwórz hasło aplikacji:
+   <https://myaccount.google.com/apppasswords>.
+2. Ustaw adresy w `config/notify.json` (szablon: `config/notify.example.json`;
+   plik jest ignorowany przez Git).
+3. Uruchom `python setup_email.py` — zapyta o hasło aplikacji, zapisze je
+   w Menedżerze poświadczeń Windows (nie w pliku) i wyśle mail testowy.
+
+Harmonogram: zadanie „QA Job Finder” w Harmonogramie zadań Windows uruchamia
+`scheduled_run.cmd` w każdy poniedziałek o 8:00. Jeśli komputer był wtedy
+wyłączony, zadanie wykona się po jego włączeniu. Log ostatniego przebiegu:
+`reports/logs/last_run.log`. `scheduled_run.cmd` zawiera ścieżkę do Pythona
+(`C:\Python312\python.exe`) — zmień ją, jeśli Python jest gdzie indziej.
+
+Zmiana terminu (PowerShell):
+
+```powershell
+Set-ScheduledTask -TaskName "QA Job Finder" -Trigger (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "08:00")
+Start-ScheduledTask -TaskName "QA Job Finder"        # uruchom teraz, na próbę
+Unregister-ScheduledTask -TaskName "QA Job Finder"   # usuń harmonogram
+```
 
 ## Uruchomienie
 
-### Prywatny profil wyszukiwania
+```powershell
+python -m pip install -r requirements.txt --user
+python -m playwright install chromium   # jednorazowo, tylko dla opcji --render
+
+python portals_main.py      # 1. portale
+python companies_main.py    # 2. strony firm (domyślnie priorytet S)
+python public_main.py       # 3. budżetówka (domyślnie wszystkie priorytety)
+python run_all.py           # 4. wszystko (firmy i instytucje: wszystkie priorytety)
+```
+
+Opcje `companies_main.py` i `public_main.py`:
+
+```powershell
+--all                      # wszystkie priorytety (S, A, B)
+--tiers S A                # wybrane priorytety
+--company Sii Tietoevry    # tylko wybrane wpisy (fragment nazwy)
+--category erp_wms         # tylko wybrane kategorie (companies_main.py)
+--render                   # dodatkowo renderuj strony ładowane JavaScriptem (wolniej)
+--verbose                  # wynik i metoda dla każdego wpisu (diagnostyka bazy)
+--skip-nabory              # public_main.py: pomiń nabory.kprm.gov.pl
+```
+
+Opcje `run_all.py`: `--tiers`, `--render`, `--email`, `--skip portals companies public`.
+
+Na końcu skrypty stron karier wypisują wpisy zablokowane (401/403/429),
+z nieaktualnym adresem (404, strona błędu, przekierowanie na stronę główną,
+certyfikat innej domeny) oraz błędy techniczne — to lista wpisów w bazie do
+poprawienia.
+
+## Prywatny profil wyszukiwania
 
 Przed pierwszym uruchomieniem skopiuj szablon i uzupełnij go własnymi warunkami:
 
@@ -30,30 +116,84 @@ Edytuj wyłącznie `config/search_profile.json`. Plik zawiera:
 - `matching_skills` — umiejętności i punkty wpływające na dopasowanie;
 - `filtering` — minimalny wynik oraz limity weryfikacji i raportu.
 
+Pola opcjonalne (starsze profile działają bez nich):
+
+- `location.country` — kraj ofert ze stron karier (domyślnie `Poland`);
+- `location.city_aliases` — inne pisownie miasta, np. `["Warsaw"]` dla Warszawy
+  (polskie znaki są porównywane bez ogonków, więc `Wroclaw` == `Wrocław`);
+- `job_titles.career_search_keywords` — frazy wysyłane do wyszukiwarek ATS
+  (Workday, SmartRecruiters, SuccessFactors, Phenom); domyślnie
+  `["QA", "tester", "testów", "test engineer"]`;
+- `job_titles.public_sector_include` — dodatkowe słowa tytułów w budżetówce,
+  gdzie stanowiska są urzędowe („Specjalista ds. testów”); domyślnie m.in.
+  `tester`, `testów`, `testowania`, `jakości oprogramowania`;
+- `job_titles.public_sector_seniority_exclude` — stanowiska kierownicze do
+  pominięcia w budżetówce; domyślnie `kierownik`, `naczelnik`, `dyrektor`.
+
 `config/search_profile.json` jest ignorowany przez Git. Nie dodawaj go ręcznie do
 commita. Do repozytorium trafia tylko `config/search_profile.example.json`, który
 jest neutralnym szablonem bez Twoich danych.
 
-### Uruchamianie raportów
+## Jak działają skrypty stron karier
 
-```powershell
-python -m pip install -r requirements.txt --user
-python main.py
+`companies_main.py` i `public_main.py` dla każdego wpisu z bazy kolejno:
 
-# Codzienny monitoring firm Tier S
-python companies_main.py
+1. pobierają oferty z publicznego API systemu rekrutacyjnego (ATS) wskazanego
+   w bazie albo wykrytego w kodzie strony — obsługiwane: Workday,
+   SmartRecruiters, Greenhouse, Lever, Workable, Teamtailor, Recruitee, Ashby,
+   Traffit, eRecruiter, SAP SuccessFactors i Phenom;
+2. czytają oferty opublikowane jako schema.org/JobPosting (JSON-LD);
+3. szukają na stronie linków do ofert z pasującym tytułem;
+4. przechodzą na podstrony typu „Oferty pracy” / „Open positions”;
+5. z opcją `--render` renderują w Chromium strony, które ładują listę
+   ofert JavaScriptem i nie dały wyniku statycznie.
 
-# Pełne skanowanie wszystkich firm
-python companies_main.py --all
+Do raportu trafiają tylko oferty w kraju z profilu (domyślnie Polska), zdalne
+albo bez podanej lokalizacji — globalne ATS-y korporacji zwracają oferty
+z całego świata.
+
+## Budżetówka
+
+`public_main.py` łączy trzy źródła:
+
+- **nabory.kprm.gov.pl** — wszystkie ogłoszenia służby cywilnej (ministerstwa,
+  urzędy wojewódzkie, KAS, Policja — pracownicy cywilni, inspekcje). Tytuł na
+  liście to tylko stanowisko urzędnicze („specjalista”), więc program pobiera
+  szczegóły („Do spraw: testowania oprogramowania”, komórka) i na nich sprawdza
+  słowa kluczowe;
+- **API ogłoszeń gov.pl** — ok. 300 instytucji spoza służby cywilnej
+  (instytuty badawcze, Zakład Informatyki Lasów Państwowych, Wody Polskie…);
+- **`config/public_institutions.json`** — instytucje z własnymi stronami ofert:
+  COI (mObywatel), Centrum e-Zdrowia, NASK, CUI Wrocław, ZUS, NFZ, Policja, BGK…
+
+Część serwerów BIP (Wrocław, Policja) wysyła niepełny łańcuch certyfikatów
+SSL. Pakiet `truststore` (w `requirements.txt`) korzysta z magazynu
+certyfikatów Windows, który go uzupełnia — bez wyłączania weryfikacji.
+
+## Bazy firm i instytucji
+
+`config/companies.json` (firmy) i `config/public_institutions.json`
+(budżetówka) mają ten sam format. Minimalny wpis:
+
+```json
+{"name": "Firma", "category": "software_house", "priority": "B",
+ "careers_url": "https://firma.pl/kariera"}
 ```
 
-Po zakończeniu raporty znajdują się w katalogu `reports`:
+- `priority` — `S` (sprawdzane codziennie, domyślnie w `companies_main.py`),
+  `A`, `B` (pełne skanowanie z `--all`);
+- `category` — jedna z: `erp_wms`, `software_house`, `product`, `enterprise`,
+  `finance`, `logistics`, `automotive_industrial`, `public`.
 
-- `report.xlsx` — raport w Excelu z klikalnymi linkami;
-- `report.html` — raport w przeglądarce z przyciskiem „Otwórz ofertę”.
+Pola opcjonalne:
 
-Raport ze stron firm trafia osobno do `reports/companies/company_report.xlsx`
-oraz `reports/companies/company_report.html`.
+- `jobs_url` — strona z listą ofert, jeśli inna niż strona kariery;
+- `ats` — tablica ofert w ATS, np. `"https://apply.workable.com/firma/"`,
+  `"https://firma.wd3.myworkdayjobs.com/External"` albo — dla platform pod
+  domeną firmy — `{"type": "teamtailor", "url": "https://jobs.firma.com"}`
+  (typy `teamtailor`, `successfactors`, `phenom`). Można podać listę;
+- `enabled: false` — wyłącza wpis bez usuwania go z bazy;
+- `notes` — komentarz, ignorowany przez program.
 
-Program nie dopisuje ofert na siłę: jeśli mniej pozycji przejdzie wszystkie filtry
-i kontrolę linków, raport będzie krótszy od ustawionego limitu.
+Wskazanie `ats` jest najpewniejsze: API zwraca pełną listę ofert z lokalizacją
+i trybem pracy, niezależnie od wyglądu strony kariery.

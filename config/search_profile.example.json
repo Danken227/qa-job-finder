@@ -2,6 +2,8 @@
   "location": {
     "preferred_city": "Twoje miasto",
     "preferred_city_slug": "twoje-miasto",
+    "city_aliases": ["Twoje miasto po angielsku"],
+    "country": "Poland",
     "allow_remote": true,
     "allow_hybrid_outside_preferred_city": false
   },
@@ -14,7 +16,10 @@
   "job_titles": {
     "include": ["qa", "tester"],
     "automation_first_exclude": ["automation", "sdet"],
-    "seniority_exclude": ["manager", "lead"]
+    "seniority_exclude": ["manager", "lead"],
+    "career_search_keywords": ["QA", "tester", "testów", "test engineer"],
+    "public_sector_include": ["tester", "testów", "testowania", "qa", "jakości oprogramowania"],
+    "public_sector_seniority_exclude": ["kierownik", "naczelnik", "dyrektor"]
   },
   "matching_skills": [
     {"name": "Przykładowa umiejętność", "points": 1}

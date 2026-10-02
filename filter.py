@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, replace
 
 from collectors.base import JobOffer
-from collectors.parsing import normalize_title
+from collectors.parsing import contains_keyword, fold_text, normalize_title
 from config.settings import (
     CANDIDATES_FOR_VERIFICATION,
     MIN_B2B,
@@ -46,8 +46,11 @@ def deduplicate_offers(offers: list[JobOffer]) -> list[JobOffer]:
     return list(best.values())
 
 
-def _offer_richness(offer: JobOffer) -> tuple[bool, int, int, bool]:
+def _offer_richness(offer: JobOffer) -> tuple[bool, bool, int, int, bool]:
+    # Ta sama oferta bywa publikowana osobno dla kilku miast - zostawiamy
+    # wersję, która przejdzie filtr lokalizacji (np. Wrocław zamiast Szczecina).
     return (
+        _is_allowed_location(offer),
         bool(offer.salary),
         len(offer.skills),
         len(offer.contract_types),
@@ -65,20 +68,31 @@ def filter_offers(offers: list[JobOffer]) -> list[JobOffer]:
     return filter_offers_with_diagnostics(offers).offers
 
 
-def filter_offers_with_diagnostics(offers: list[JobOffer]) -> FilterResult:
-    """Filtruje oferty i zwraca liczby odrzuceń według powodu."""
+def filter_offers_with_diagnostics(
+    offers: list[JobOffer],
+    title_keywords: tuple[str, ...] = (),
+    seniority_exclude: tuple[str, ...] = (),
+) -> FilterResult:
+    """Filtruje oferty i zwraca liczby odrzuceń według powodu.
 
+    ``title_keywords`` i ``seniority_exclude`` rozszerzają reguły z profilu,
+    np. o urzędowe tytuły w budżetówce ("Specjalista ds. testów").
+    """
+
+    extra_title_keywords = title_keywords
+    title_keywords = (*TITLE_KEYWORDS, *title_keywords)
+    seniority_exclude = (*SENIORITY_OR_LEADERSHIP_TITLES, *seniority_exclude)
     shortlisted: list[JobOffer] = []
     rejected_title = rejected_automation = rejected_seniority = 0
     rejected_location = rejected_salary = rejected_score = 0
     for offer in offers:
-        if not _has_relevant_title(offer.title):
+        if not contains_keyword(offer.title, title_keywords):
             rejected_title += 1
             continue
         if _is_automation_first(offer.title):
             rejected_automation += 1
             continue
-        if _is_out_of_scope_seniority(offer.title):
+        if contains_keyword(offer.title, seniority_exclude):
             rejected_seniority += 1
             continue
         if not _is_allowed_location(offer):
@@ -90,7 +104,7 @@ def filter_offers_with_diagnostics(offers: list[JobOffer]) -> FilterResult:
             rejected_salary += 1
             continue
 
-        score, reasons = _score_offer(offer, salary_assessment)
+        score, reasons = _score_offer(offer, salary_assessment, extra_title_keywords)
         if score < MIN_MATCH_SCORE:
             rejected_score += 1
             continue
@@ -119,25 +133,20 @@ def filter_offers_with_diagnostics(offers: list[JobOffer]) -> FilterResult:
     )
 
 
-def _has_relevant_title(title: str) -> bool:
-    normalized = title.casefold()
-    return any(keyword in normalized for keyword in TITLE_KEYWORDS)
-
-
 def _is_automation_first(title: str) -> bool:
-    normalized = title.casefold()
-    return any(keyword in normalized for keyword in AUTOMATION_FIRST_TITLES) and "manual" not in normalized
+    return contains_keyword(title, AUTOMATION_FIRST_TITLES) and not contains_keyword(title, ("manual",))
 
 
-def _is_out_of_scope_seniority(title: str) -> bool:
-    normalized = title.casefold()
-    return any(keyword in normalized for keyword in SENIORITY_OR_LEADERSHIP_TITLES)
+def is_preferred_city(location: str) -> bool:
+    """Porównuje miasto bez polskich znaków i z aliasami (Wrocław == Wroclaw)."""
+    folded_location = fold_text(location)
+    return any(fold_text(city) in folded_location for city in PROFILE.city_names if city)
 
 
 def _is_allowed_location(offer: JobOffer) -> bool:
     if PROFILE.allow_remote and offer.work_mode.casefold() == "remote":
         return True
-    if PROFILE.preferred_city.casefold() in offer.location.casefold():
+    if is_preferred_city(offer.location):
         return True
     return PROFILE.allow_hybrid_outside_preferred_city and offer.work_mode.casefold() == "hybrid"
 
@@ -187,15 +196,19 @@ def _numbers_from_salary(salary: str) -> list[float]:
     return numbers
 
 
-def _score_offer(offer: JobOffer, salary_assessment: str) -> tuple[int, list[str]]:
+def _score_offer(
+    offer: JobOffer,
+    salary_assessment: str,
+    title_keywords: tuple[str, ...] = (),
+) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
     title = offer.title.casefold()
 
-    if "manual" in title:
+    if contains_keyword(title, ("manual",)):
         score += 6
         reasons.append("testy manualne")
-    if "tester" in title or "qa" in title:
+    if contains_keyword(title, ("tester", "qa", *title_keywords)):
         score += 3
 
     skills = {skill.casefold() for skill in offer.skills}
@@ -207,7 +220,7 @@ def _score_offer(offer: JobOffer, salary_assessment: str) -> tuple[int, list[str
     if offer.work_mode.casefold() == "remote":
         score += 3
         reasons.append("100% remote")
-    elif PROFILE.preferred_city.casefold() in offer.location.casefold():
+    elif is_preferred_city(offer.location):
         score += 2
         reasons.append(PROFILE.preferred_city)
 

@@ -1,0 +1,6 @@
+{
+  "sender": "twoj.adres@gmail.com",
+  "recipients": ["twoj.adres@gmail.com"],
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 465
+}

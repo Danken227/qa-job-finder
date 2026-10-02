@@ -12,6 +12,19 @@ from pathlib import Path
 
 PROFILE_PATH = Path(__file__).with_name("search_profile.json")
 
+DEFAULT_PUBLIC_TITLE_KEYWORDS = (
+    "tester",
+    "testerka",
+    "testów",
+    "testowania",
+    "testowanie",
+    "testy",
+    "qa",
+    "jakości oprogramowania",
+    "zapewnienia jakości",
+)
+DEFAULT_PUBLIC_SENIORITY_EXCLUDE = ("kierownik", "naczelnik", "dyrektor", "zastępca dyrektora")
+
 
 @dataclass(frozen=True, slots=True)
 class SearchProfile:
@@ -30,6 +43,18 @@ class SearchProfile:
     min_match_score: int
     candidates_for_verification: int
     max_report_offers: int
+    # Pola opcjonalne - starsze profile działają bez nich.
+    country: str = "Poland"
+    city_aliases: tuple[str, ...] = ()
+    career_search_keywords: tuple[str, ...] = ("QA", "tester", "testów", "test engineer")
+    # Ogłoszenia w budżetówce mają polskie, urzędowe tytuły ("Specjalista ds. testów").
+    public_title_keywords: tuple[str, ...] = DEFAULT_PUBLIC_TITLE_KEYWORDS
+    public_seniority_exclude: tuple[str, ...] = DEFAULT_PUBLIC_SENIORITY_EXCLUDE
+
+    @property
+    def city_names(self) -> tuple[str, ...]:
+        """Miasto w każdej znanej pisowni (np. Warszawa / Warsaw)."""
+        return (self.preferred_city, *self.city_aliases)
 
 
 def load_profile(path: Path = PROFILE_PATH) -> SearchProfile:
@@ -62,6 +87,19 @@ def load_profile(path: Path = PROFILE_PATH) -> SearchProfile:
         min_match_score=int(filtering["min_match_score"]),
         candidates_for_verification=int(filtering["candidates_for_verification"]),
         max_report_offers=int(filtering["max_report_offers"]),
+        country=str(location.get("country", "Poland")),
+        city_aliases=tuple(str(item) for item in location.get("city_aliases", ())),
+        career_search_keywords=tuple(
+            str(item)
+            for item in job_titles.get("career_search_keywords", ("QA", "tester", "testów", "test engineer"))
+        ),
+        public_title_keywords=tuple(
+            str(item) for item in job_titles.get("public_sector_include", DEFAULT_PUBLIC_TITLE_KEYWORDS)
+        ),
+        public_seniority_exclude=tuple(
+            str(item)
+            for item in job_titles.get("public_sector_seniority_exclude", DEFAULT_PUBLIC_SENIORITY_EXCLUDE)
+        ),
     )
 
 

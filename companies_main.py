@@ -1,67 +1,53 @@
-"""Raport ofert QA z oficjalnych stron karier firm."""
+"""Skrypt 2: oferty QA bezpośrednio ze stron karier firm (config/companies.json)."""
 
 from __future__ import annotations
 
 import argparse
 
 from collectors.careers import CareerPagesCollector
-from filter import deduplicate_offers, filter_offers_with_diagnostics
-from report import export
-from verification import verify_offers
+from pipeline import (
+    ReportResult,
+    add_career_arguments,
+    build_report,
+    configure_console,
+    print_career_problems,
+    print_career_scan,
+    selected_tiers,
+)
+
+REPORTS_DIR = "reports/companies"
+BASENAME = "company_report"
+
+
+def run(
+    tiers: tuple[str, ...] = ("S",),
+    company_names: tuple[str, ...] = (),
+    render: bool = False,
+    verbose: bool = False,
+    categories: tuple[str, ...] = (),
+) -> ReportResult:
+    collector = CareerPagesCollector(
+        tiers=tiers, company_names=company_names, render=render, categories=categories
+    )
+    offers = collector.collect()
+    print_career_scan(collector, verbose, label="Firmy")
+    result = build_report(
+        offers,
+        name="Strony firm",
+        reports_dir=REPORTS_DIR,
+        basename=BASENAME,
+        title="Raport ofert QA – strony karier firm",
+    )
+    print_career_problems(collector)
+    return result
 
 
 def main() -> None:
+    configure_console()
     parser = argparse.ArgumentParser(description="Monitor oficjalnych stron karier firm.")
-    parser.add_argument(
-        "--tiers",
-        nargs="+",
-        choices=("S", "A", "B"),
-        default=("S",),
-        help="Priorytety firm do sprawdzenia; domyślnie tylko S.",
-    )
-    parser.add_argument("--all", action="store_true", help="Sprawdź firmy z każdego priorytetu.")
+    add_career_arguments(parser)
     args = parser.parse_args()
-    tiers = ("S", "A", "B") if args.all else tuple(args.tiers)
-
-    collector = CareerPagesCollector(tiers=tiers)
-    offers = collector.collect()
-    summary = collector.summary
-    print(
-        f"Firmy: wybrano {summary.selected_companies}, sprawdzono {summary.scanned_companies}, "
-        f"niepobrane {summary.failed_companies} "
-        f"(blokady: {summary.blocked_companies}, nieaktualne adresy: {summary.outdated_companies})."
-    )
-    print(f"Oferty wykryte na stronach karier: {summary.discovered_offers}.")
-
-    filtering = filter_offers_with_diagnostics(deduplicate_offers(offers))
-    candidates = filtering.offers
-    print(f"Po filtrach: {len(candidates)} ofert do sprawdzenia.")
-    if not candidates and offers:
-        print(
-            "Odrzucono przez filtry: "
-            f"tytuł {filtering.rejected_title}, automatyzacja {filtering.rejected_automation}, "
-            f"poziom stanowiska {filtering.rejected_seniority}, lokalizacja {filtering.rejected_location}, "
-            f"wynagrodzenie {filtering.rejected_salary}, dopasowanie {filtering.rejected_score}."
-        )
-    result = verify_offers(candidates)
-    excel_path, html_path = export(result.offers, reports_dir="reports/companies", basename="company_report")
-
-    print(f"Zweryfikowano: {result.passed}, odrzucono: {result.rejected}, obcięto limitem: {result.trimmed}.")
-    print(f"Zapisano: {len(result.offers)} ofert.")
-    print(f"Excel: {excel_path}")
-    print(f"HTML:  {html_path}")
-    if collector.blocked:
-        print("Zablokowane przez stronę (403):")
-        for failure in collector.blocked:
-            print(f"- {failure}")
-    if collector.outdated:
-        print("Nieaktualne adresy (404):")
-        for failure in collector.outdated:
-            print(f"- {failure}")
-    if collector.failures:
-        print("Błędy techniczne:")
-        for failure in collector.failures:
-            print(f"- {failure}")
+    run(selected_tiers(args), tuple(args.company), args.render, args.verbose, tuple(args.category))
 
 
 if __name__ == "__main__":

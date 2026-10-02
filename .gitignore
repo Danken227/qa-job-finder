@@ -3,3 +3,4 @@ reports/
 .venv/
 *.pyc
 config/search_profile.json
+config/notify.json

@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from collectors.base import JobOffer
-from collectors.parsing import normalize_title
+from collectors.parsing import json_ld_title, normalize_title, parse_json_ld_jobs
 from config.settings import MAX_REPORT_OFFERS
 
 
@@ -17,6 +17,30 @@ REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
 }
+# Strony karier firm częściej niż portale blokują nietypowy User-Agent.
+CAREER_REQUEST_HEADERS = {
+    **REQUEST_HEADERS,
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/138.0.0.0 Safari/537.36"
+    ),
+}
+# Źródła z bezpośrednimi stronami pracodawców (a nie portali z ogłoszeniami).
+DIRECT_SOURCES = ("Kariera:", "Strona kariery", "Budżetówka")
+CLOSED_MARKERS = (
+    "no longer accepting applications",
+    "nie przyjmujemy już aplikacji",
+    "oferta wygasła",
+    "offer expired",
+    "this job is no longer available",
+    "this position has been filled",
+    "rekrutacja została zakończona",
+    "ogłoszenie wygasło",
+    "job not found",
+    "nabór został zakończony",
+    "ogłoszenie nieaktualne",
+)
 
 _TITLE_STOP_WORDS = frozenset(
     {
@@ -95,17 +119,20 @@ def _titles_match(offer_title: str, page_title: str) -> bool:
 
 
 def _verify_offer(offer: JobOffer) -> JobOffer:
+    is_company_career = offer.source.startswith(DIRECT_SOURCES)
     try:
         response = requests.get(
             offer.url,
-            headers=REQUEST_HEADERS,
+            headers=CAREER_REQUEST_HEADERS if is_company_career else REQUEST_HEADERS,
             timeout=20,
             allow_redirects=True,
         )
+        if offer.api_confirmed and response.status_code in (401, 403, 429):
+            # Oferta jest aktywna według API ATS; strona tylko blokuje skrypty.
+            return replace(offer, verified=True)
         if response.status_code != 200:
             return replace(offer, verified=False)
 
-        is_company_career = offer.source.startswith("Kariera:") or offer.source == "Strona kariery"
         known_offer_path = (
             "/job-offer/" in response.url
             or offer.source == "LinkedIn" and "/jobs/view/" in response.url
@@ -116,23 +143,26 @@ def _verify_offer(offer: JobOffer) -> JobOffer:
             return replace(offer, verified=False)
 
         soup = BeautifulSoup(response.text, "lxml")
-        page_title = soup.find("h1")
-        title_text = page_title.get_text(" ", strip=True) if page_title else ""
-        if not title_text:
-            og_title = soup.select_one('meta[property="og:title"]')
-            title_text = og_title.get("content", "") if og_title else ""
-        if not title_text and soup.title:
-            title_text = soup.title.get_text(" ", strip=True)
         page_text = soup.get_text(" ", strip=True).casefold()
-        closed_markers = (
-            "no longer accepting applications",
-            "nie przyjmujemy już aplikacji",
-            "oferta wygasła",
-            "offer expired",
-        )
-        if any(marker in page_text for marker in closed_markers):
+        if any(marker in page_text for marker in CLOSED_MARKERS):
             return replace(offer, verified=False)
 
-        return replace(offer, verified=_titles_match(offer.title, title_text))
+        if offer.api_confirmed:
+            # Strony ofert w ATS (np. Workday) renderują treść JavaScriptem,
+            # więc w HTML nie ma tytułu. Aktywność potwierdziło już API.
+            return replace(offer, verified=True)
+
+        candidates = [json_ld_title(posting) for posting in parse_json_ld_jobs(response.text)]
+        page_title = soup.find("h1")
+        if page_title:
+            candidates.append(page_title.get_text(" ", strip=True))
+        og_title = soup.select_one('meta[property="og:title"]')
+        if og_title:
+            candidates.append(og_title.get("content", ""))
+        if soup.title:
+            candidates.append(soup.title.get_text(" ", strip=True))
+
+        matched = any(_titles_match(offer.title, candidate) for candidate in candidates if candidate)
+        return replace(offer, verified=matched)
     except requests.RequestException:
         return replace(offer, verified=False)
