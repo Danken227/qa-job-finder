@@ -111,3 +111,37 @@ def test_sheet_status_survives_and_read_failure_blocks_write(tmp_path, make_offe
     result = report.export(offers, tmp_path, "t", sheet_tab="Firmy")
     assert store.writes == writes  # bez odczytu nie nadpisujemy statusów w arkuszu
     assert result.warnings and result.sheet_url == ""
+
+
+def test_wrong_match_status_is_done_and_shared():
+    assert report.WRONG_MATCH_STATUS in report.STATUSES
+    assert report.WRONG_MATCH_STATUS in report.DONE_STATUSES
+    previous = [row("Sii", "Manual Tester", "https://sii.pl/1")]
+    rows, _ = report._merge(previous, [], "2026-10-04", shared={"https://sii.pl/1": report.WRONG_MATCH_STATUS})
+    assert rows[0]["Status"] == report.WRONG_MATCH_STATUS
+
+
+def test_sheets_status_constant_matches_report():
+    import sheets
+
+    assert sheets.WRONG_MATCH_STATUS == report.WRONG_MATCH_STATUS
+
+
+def test_incomplete_source_keeps_offers_active():
+    # Regresja: blokada 429 na LinkedIn przekreślała wszystkie oferty z LinkedIn.
+    previous = [row("Luxoft", "Senior Manual QA", "https://li/1"), row("Sii", "QA", "https://nfj/1")]
+    previous[0]["Źródło"], previous[1]["Źródło"] = "LinkedIn", "No Fluff Jobs"
+    rows, _ = report._merge(previous, [], "2026-10-04", incomplete_sources={"LinkedIn"})
+    assert {item["Firma"]: item["W ostatnim wyszukiwaniu"] for item in rows} == {"Luxoft": "Tak", "Sii": "Nie"}
+
+
+def test_portal_source_labels_match_collectors():
+    from collectors.justjoinit import JustJoinItCollector
+    from collectors.linkedin import LinkedInCollector
+    from collectors.nofluffjobs import NoFluffJobsCollector
+    from collectors.pracuj import PracujCollector
+    from collectors.rocketjobs import RocketJobsCollector
+
+    names = {cls.__name__.replace("Collector", "") for cls in
+             (JustJoinItCollector, NoFluffJobsCollector, RocketJobsCollector, PracujCollector, LinkedInCollector)}
+    assert names == set(portals_main.SOURCE_LABELS)

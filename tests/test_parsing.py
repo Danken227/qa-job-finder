@@ -102,3 +102,14 @@ def test_normalize_work_mode(text, expected):
     from collectors.parsing import normalize_work_mode
 
     assert normalize_work_mode(text) == expected
+
+
+def test_salary_without_currency_and_contract_words():
+    from collectors.parsing import normalize_contracts
+
+    # Regresja (Astek na LinkedIn): kwota bez "zł"/"PLN".
+    assert extract_salary("Wynagrodzenie: od 8000 do 9500 brutto/miesiąc") == "8000 - 9500 PLN brutto /month"
+    assert extract_salary("Oferujemy 2 dni w biurze, 3 lata doświadczenia") == ""
+    # "contract testing" / "contracts with brands" to nie rodzaj umowy.
+    assert normalize_contracts("integration and contract testing; Contracts with the biggest brands") == ()
+    assert normalize_contracts("Umowa o pracę lub B2B") == ("B2B", "Permanent")

@@ -21,6 +21,9 @@ REQUEST_HEADERS = {
 }
 
 
+LISTING_PAGES = 5  # 100 ofert na listę
+
+
 class NoFluffJobsCollector(BaseCollector):
     """Pobiera oferty lokalne i zdalne z publicznych list No Fluff Jobs."""
 
@@ -29,9 +32,11 @@ class NoFluffJobsCollector(BaseCollector):
 
     def collect(self) -> list[JobOffer]:
         offers: dict[str, JobOffer] = {}
-        listing_urls = [f"{BASE_URL}/pl/{PROFILE.preferred_city}/QA"]
+        # "?page=N" zwraca narastająco N*20 ofert - jedna strona to za mało
+        # (oferta bywała dopiero na 2. stronie listy).
+        listing_urls = [f"{BASE_URL}/pl/{PROFILE.preferred_city}/QA?page={LISTING_PAGES}"]
         if PROFILE.allow_remote:
-            listing_urls.append(f"{BASE_URL}/pl/remote/QA")
+            listing_urls.append(f"{BASE_URL}/pl/remote/QA?page={LISTING_PAGES}")
 
         for listing_url in listing_urls:
             response = self.session.get(listing_url, headers=REQUEST_HEADERS, timeout=30)
@@ -85,15 +90,18 @@ class NoFluffJobsCollector(BaseCollector):
         except requests.RequestException:
             return offer
 
-        page_text = " ".join(BeautifulSoup(response.text, "lxml").stripped_strings)
-        work_mode = normalize_work_mode(page_text)
-        contracts = normalize_contracts(page_text)
-        salary = extract_salary(page_text) or offer.salary
-        skills = tuple(dict.fromkeys((*offer.skills, *extract_skills(page_text))))
+        # Tylko z opisu oferty: cała strona zawiera też inne oferty i ich
+        # widełki (stąd brały się kwoty typu "4 12 800 – 19 600").
+        from verification import page_description
+
+        description = page_description(response.text, offer.title)
+        work_mode = offer.work_mode if offer.work_mode != "Nie podano" else normalize_work_mode(description)
         return replace(
             offer,
-            work_mode=work_mode if work_mode != "Nie podano" else offer.work_mode,
-            contract_types=contracts or offer.contract_types,
-            salary=salary,
-            skills=skills,
+            description=description,
+            work_mode=work_mode,
+            contract_types=offer.contract_types or normalize_contracts(description),
+            # Widełki z karty listy są pewne; z opisu tylko, gdy karta ich nie ma.
+            salary=offer.salary or extract_salary(description),
+            skills=tuple(dict.fromkeys((*offer.skills, *extract_skills(description)))),
         )

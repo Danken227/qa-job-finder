@@ -20,6 +20,8 @@ CONFIG_DIR = Path(__file__).parent / "config"
 SHEETS_CONFIG_PATH = CONFIG_DIR / "sheets.json"
 DEFAULT_KEY_FILE = CONFIG_DIR / "google_service_account.json"
 INITIAL_ROWS = 1000
+# Status oznaczający złe dopasowanie oferty - wyróżniony kolorem (patrz report.py).
+WRONG_MATCH_STATUS = "Błędnie dopasowana"
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,12 +125,24 @@ class SheetStore:
                     self.spreadsheet.del_worksheet(sheet)
             return worksheet
 
-        if worksheet.row_values(1) != list(layout.columns):
-            # Zmienił się układ kolumn (np. usunięta "Notatka") - reguły kolorów
-            # odwołują się do liter kolumn, więc formatowanie trzeba założyć od nowa.
+        if worksheet.row_values(1) != list(layout.columns) or self._statuses_changed(worksheet, layout):
+            # Zmienił się układ kolumn albo lista statusów - reguły kolorów i lista
+            # rozwijana odwołują się do nich, więc formatowanie zakładamy od nowa.
             self._reset_format(worksheet, len(layout.columns))
             self._format(worksheet, layout)
         return worksheet
+
+    def _statuses_changed(self, worksheet, layout: "_Layout") -> bool:
+        column = _column_letter(layout.columns.index("Status") + 1)
+        meta = self.spreadsheet.fetch_sheet_metadata({
+            "fields": "sheets(data(rowData(values(dataValidation))))",
+            "ranges": [f"'{worksheet.title}'!{column}2"],
+        })
+        try:
+            values = meta["sheets"][0]["data"][0]["rowData"][0]["values"][0]["dataValidation"]["condition"]["values"]
+        except (KeyError, IndexError):
+            return True
+        return [item.get("userEnteredValue") for item in values] != list(layout.statuses)
 
     def _reset_format(self, worksheet, column_count: int) -> None:
         meta = self.spreadsheet.fetch_sheet_metadata({"fields": "sheets(properties(sheetId),conditionalFormats)"})
@@ -173,6 +187,8 @@ class SheetStore:
                                                      "startColumnIndex": 0, "endColumnIndex": len(columns)}}}},
             rule(f'=${status_letter}2="{layout.new_status}"', {"backgroundColor": _rgb("E2EFDA")}),
             *(rule(f'=${status_letter}2="{status}"',
+                   {"backgroundColor": _rgb("F4CCCC"), "textFormat": {"foregroundColor": _rgb("9C0006")}}
+                   if status == WRONG_MATCH_STATUS else
                    {"backgroundColor": _rgb("EDEDED"), "textFormat": {"foregroundColor": _rgb("808080")}})
               for status in layout.done_statuses),
             # Dodawana jako ostatnia z index=0, więc ma najwyższy priorytet.

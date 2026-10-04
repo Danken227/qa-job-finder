@@ -34,6 +34,9 @@ class FilterResult:
     rejected_location: int = 0
     rejected_salary: int = 0
     rejected_score: int = 0
+    # Ofert, które przeszły filtry, zanim limit candidates_for_verification
+    # wybrał najlepiej ocenione do weryfikacji.
+    shortlisted_total: int = 0
 
 
 def deduplicate_offers(offers: list[JobOffer]) -> list[JobOffer]:
@@ -74,6 +77,7 @@ def filter_offers_with_diagnostics(
     offers: list[JobOffer],
     title_keywords: tuple[str, ...] = (),
     seniority_exclude: tuple[str, ...] = (),
+    apply_min_score: bool = True,
 ) -> FilterResult:
     """Filtruje oferty i zwraca liczby odrzuceń według powodu.
 
@@ -111,7 +115,9 @@ def filter_offers_with_diagnostics(
             continue
 
         score, reasons = _score_offer(offer, salary_assessment, extra_title_keywords)
-        if score < MIN_MATCH_SCORE:
+        # Pipeline sprawdza próg dopiero po analizie opisu (premia za pracę
+        # manualną) - wtedy apply_min_score=False.
+        if apply_min_score and score < MIN_MATCH_SCORE:
             rejected_score += 1
             continue
         shortlisted.append(
@@ -129,6 +135,7 @@ def filter_offers_with_diagnostics(
         reverse=True,
     )[:CANDIDATES_FOR_VERIFICATION]
     return FilterResult(
+        shortlisted_total=len(shortlisted),
         offers=result,
         rejected_title=rejected_title,
         rejected_language=rejected_language,
@@ -170,10 +177,21 @@ def _assess_salary(offer: JobOffer) -> tuple[bool, str]:
         return True, "Nie udało się odczytać widełek — pokaż ofertę"
 
     maximum = max(values)
+    salary_text = offer.salary.casefold()
     contracts = {contract.casefold() for contract in offer.contract_types}
     has_b2b = "b2b" in contracts
     has_uop = "permanent" in contracts
-    per_hour = "/h" in offer.salary.casefold() or "/hour" in offer.salary.casefold()
+    per_hour = "/h" in salary_text or "/hour" in salary_text
+    if "/year" in salary_text:
+        maximum /= 12
+    if not has_b2b and not has_uop:
+        # Umowa nieznana - wnioskujemy z widełek: stawka godzinowa albo netto
+        # (+VAT) to zwykle B2B, miesięczne brutto - umowa o pracę. Wcześniej
+        # takie oferty przechodziły bez sprawdzenia kwoty.
+        if per_hour or "netto" in salary_text or "net" in salary_text.split() or "vat" in salary_text:
+            has_b2b = True
+        elif "brutto" in salary_text or "gross" in salary_text:
+            has_uop = True
 
     if has_b2b:
         hourly_rate = maximum if per_hour else maximum / 160
@@ -215,7 +233,7 @@ def _score_offer(
     if contains_keyword(title, ("manual",)):
         score += 6
         reasons.append("testy manualne")
-    if contains_keyword(title, ("tester", "qa", *title_keywords)):
+    if contains_keyword(title, ("tester", "qa", "quality assurance", "test engineer", *title_keywords)):
         score += 3
 
     skills = {skill.casefold() for skill in offer.skills}

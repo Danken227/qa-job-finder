@@ -150,3 +150,25 @@ def test_extract_cities_and_location_from_card():
     assert _extract_location("Testowanie Specjalista ds. Testów (m./k./os.) Gdynia Aplikuj teraz") == "Gdynia"
     assert _extract_location("Gdańsk, Wroclaw") == "Wrocław; Gdańsk"
     assert _extract_location("Praca zdalna") == "Nie podano"
+
+
+LINKEDIN_CARD = """
+<div class="job-search-card"><a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/x-123456789?trk=1"></a>
+<h3 class="base-search-card__title">Senior Manual QA</h3><h4 class="base-search-card__subtitle"><a>Luxoft</a></h4>
+<span class="job-search-card__location">{location}</span></div>
+"""
+
+
+@pytest.mark.parametrize(
+    ("location", "remote_only", "expected"),
+    [
+        ("Polska", True, "Remote"),      # filtr "zdalnie" + cały kraj - ufamy
+        ("Warszawa", True, "Nie podano"),  # filtr "zdalnie" + konkretne miasto - nie ufamy (Sii, Yassir)
+        ("Wrocław", False, "Nie podano"),
+    ],
+)
+def test_linkedin_remote_filter_trusted_only_for_country_wide_location(location, remote_only, expected):
+    from collectors.linkedin import LinkedInCollector
+
+    card = BeautifulSoup(LINKEDIN_CARD.format(location=location), "lxml").select_one("div.job-search-card")
+    assert LinkedInCollector._parse_card(card, remote_only).work_mode == expected

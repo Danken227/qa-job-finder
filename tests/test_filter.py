@@ -63,3 +63,11 @@ def test_deduplicate_prefers_allowed_location(make_offer):
     szczecin = make_offer(title="Manual Tester", location="Szczecin", work_mode="Office", url="https://x/1")
     wroclaw = make_offer(title="Manual Tester", location="Wrocław", work_mode="Office", url="https://x/2")
     assert [offer.url for offer in deduplicate_offers([szczecin, wroclaw])] == ["https://x/2"]
+
+
+def test_salary_with_unknown_contract_is_inferred(make_offer):
+    # Regresja (Astek): "od 8000 do 9500 brutto/miesiąc" bez rodzaju umowy przechodziło bez sprawdzenia.
+    uop_low, note = _assess_salary(make_offer(salary="6000 - 7500 PLN brutto /month"))  # próg testowy: 9000
+    b2b_ok, _ = _assess_salary(make_offer(salary="130 - 160 PLN netto /h"))
+    assert not uop_low and "UoP" in note
+    assert b2b_ok

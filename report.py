@@ -30,9 +30,12 @@ from collectors.base import JobOffer
 from collectors.parsing import fold_text, normalize_title
 
 STATUS_NEW = "Nowa"
-STATUSES = (STATUS_NEW, "Obejrzana", "CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie")
+# "Błędnie dopasowana" - oferta nie powinna była trafić do raportu (zła
+# lokalizacja, tryb, widełki...). Materiał do strojenia filtrów.
+WRONG_MATCH_STATUS = "Błędnie dopasowana"
+STATUSES = (STATUS_NEW, "Obejrzana", "CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie", WRONG_MATCH_STATUS)
 # Statusy "załatwione" - wyszarzone w Excelu, zwinięte w HTML.
-DONE_STATUSES = ("CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie")
+DONE_STATUSES = ("CV wysłane", "Rozmowa", "Odrzucona", "Nie interesuje mnie", WRONG_MATCH_STATUS)
 STATUS_ORDER = {status: index for index, status in enumerate(STATUSES)}
 
 # Wszystkie listy ofert (zakładka arkusza -> lokalny Excel). Status tej samej
@@ -96,6 +99,7 @@ def export(
     title: str = "Raport ofert QA",
     sheet_tab: str = "",
     scope: set[str] | None = None,
+    incomplete_sources: set[str] | None = None,
 ) -> ExportResult:
     """Scala bieżące oferty z poprzednią listą i zapisuje arkusz, Excel i HTML.
 
@@ -127,7 +131,7 @@ def export(
     if previous is None:
         previous = _read_previous(excel_path)
     shared = _shared_statuses(sheet_tab, excel_path, store)
-    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today, scope, shared)
+    rows, new_rows = _merge(previous, [_to_row(offer) for offer in offers], today, scope, shared, incomplete_sources)
 
     try:
         _write_excel(rows, excel_path)
@@ -269,6 +273,7 @@ def _merge(
     today: str,
     scope: set[str] | None = None,
     shared: dict | None = None,
+    incomplete_sources: set[str] | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Zwraca (wszystkie wiersze, oferty nowe w tym przebiegu).
 
@@ -302,6 +307,10 @@ def _merge(
             continue
         old = {column: old.get(column, "") for column in COLUMNS}
         in_scope = scope is None or old.get("Firma", "").casefold() in {name.casefold() for name in scope}
+        # Źródło, które tym razem nie zadziałało w pełni (limit zapytań, błąd),
+        # nie jest dowodem, że jego oferty zniknęły.
+        if old.get("Źródło", "") in (incomplete_sources or set()):
+            in_scope = False
         if in_scope or not old["W ostatnim wyszukiwaniu"]:
             old["W ostatnim wyszukiwaniu"] = "Nie"
         rows.append(old)
@@ -373,6 +382,11 @@ def _write_excel(rows: list[dict[str, str]], path: Path) -> None:
     sheet.conditional_formatting.add(
         full_range,
         FormulaRule(formula=[f'${active_letter}2="Nie"'], font=Font(color="A6A6A6", strike=True), stopIfTrue=True),
+    )
+    sheet.conditional_formatting.add(
+        full_range,
+        FormulaRule(formula=[f'${status_letter}2="{WRONG_MATCH_STATUS}"'], font=Font(color="9C0006"),
+                    fill=PatternFill("solid", fgColor="F4CCCC"), stopIfTrue=True),
     )
     sheet.conditional_formatting.add(
         full_range,

@@ -24,10 +24,11 @@ from analysis import required_foreign_languages, work_profile
 
 from collectors.base import JobOffer
 from collectors.careers import CareerPagesCollector
-from collectors.pracuj import fetch_descriptions
+from collectors.pracuj import EXPIRED, fetch_descriptions
 from config.companies_loader import CATEGORY_LABELS
-from filter import deduplicate_offers, filter_offers_with_diagnostics
-from config.settings import MAX_REPORT_OFFERS
+from collectors.parsing import extract_salary, normalize_contracts, normalize_work_mode
+from filter import _assess_salary, _is_allowed_location, deduplicate_offers, filter_offers_with_diagnostics
+from config.settings import MAX_REPORT_OFFERS, MIN_MATCH_SCORE
 from report import export
 from verification import verify_offers
 
@@ -67,6 +68,7 @@ def build_report(
     sheet_tab: str = "",
     problems: list[str] | None = None,
     scope: set[str] | None = None,
+    incomplete_sources: set[str] | None = None,
 ) -> ReportResult:
     """Filtruje i weryfikuje oferty, zapisuje raport i wypisuje podsumowanie."""
 
@@ -74,8 +76,10 @@ def build_report(
     if len(unique) != len(offers):
         print(f"Deduplikacja: {len(offers)} → {len(unique)} unikalnych ofert.")
 
-    filtering = filter_offers_with_diagnostics(unique, title_keywords, seniority_exclude)
-    print(f"Po filtrach: {len(filtering.offers)} ofert do sprawdzenia.")
+    filtering = filter_offers_with_diagnostics(unique, title_keywords, seniority_exclude, apply_min_score=False)
+    cut = filtering.shortlisted_total - len(filtering.offers)
+    print(f"Po filtrach: {filtering.shortlisted_total} ofert; do sprawdzenia {len(filtering.offers)}"
+          + (f" (limit candidates_for_verification pominął {cut} słabiej ocenionych)." if cut else "."))
     if unique:
         print(
             "Odrzucono przez filtry: "
@@ -90,11 +94,14 @@ def build_report(
     analysed = analyse_descriptions(result.offers)
     final = analysed.offers[:MAX_REPORT_OFFERS]
     print(
-        f"Analiza opisów: odrzucono {analysed.rejected_language} (inny język obcy niż angielski) "
-        f"i {analysed.rejected_automation} (głównie automatyzacja); "
+        f"Analiza opisów: odrzucono {analysed.rejected_language} (inny język obcy niż angielski), "
+        f"{analysed.rejected_automation} (głównie automatyzacja), {analysed.rejected_salary} (wynagrodzenie "
+        f"z opisu), {analysed.rejected_location} (tryb pracy / lokalizacja z opisu), "
+        f"{analysed.rejected_expired} (oferta wygasła), {analysed.rejected_score} (dopasowanie poniżej progu); "
         f"obcięto limitem: {max(0, len(analysed.offers) - MAX_REPORT_OFFERS)}."
     )
-    exported = export(final, reports_dir=reports_dir, basename=basename, title=title, sheet_tab=sheet_tab, scope=scope)
+    exported = export(final, reports_dir=reports_dir, basename=basename, title=title, sheet_tab=sheet_tab, scope=scope,
+                      incomplete_sources=incomplete_sources)
     print(f"W tym wyszukiwaniu: {len(final)} ofert, nowych: {len(exported.new_rows)}.")
     print(f"Excel: {exported.excel_path}")
     print(f"HTML:  {exported.html_path}")
@@ -120,6 +127,10 @@ class AnalysisResult:
     offers: list[JobOffer]
     rejected_language: int = 0
     rejected_automation: int = 0
+    rejected_salary: int = 0
+    rejected_location: int = 0
+    rejected_expired: int = 0
+    rejected_score: int = 0
 
 
 def analyse_descriptions(offers: list[JobOffer]) -> AnalysisResult:
@@ -134,10 +145,27 @@ def analyse_descriptions(offers: list[JobOffer]) -> AnalysisResult:
         except Exception as error:  # noqa: BLE001 - analiza zadziała na skróconym opisie
             print(f"Pracuj.pl: nie udało się pobrać pełnych opisów ({error}).")
             descriptions = {}
-        offers = [replace(offer, description=descriptions.get(offer.url, offer.description)) for offer in offers]
+        expired = {url for url, text in descriptions.items() if text == EXPIRED}
+        result_expired = len(expired)
+        offers = [replace(offer, description=descriptions.get(offer.url, offer.description))
+                  for offer in offers if offer.url not in expired]
+    else:
+        result_expired = 0
 
-    result = AnalysisResult([])
+    result = AnalysisResult([], rejected_expired=result_expired)
     for offer in offers:
+        offer = _complete_from_description(offer)
+        # Widełki i tryb pracy znane dopiero z pełnego opisu (np. LinkedIn:
+        # "od 8000 do 9500 brutto", "hybrid, 2 days in the Warsaw office")
+        # przechodzą jeszcze raz przez filtry profilu.
+        salary_ok, salary_assessment = _assess_salary(offer)
+        if not salary_ok:
+            result.rejected_salary += 1
+            continue
+        if not _is_allowed_location(offer):
+            result.rejected_location += 1
+            continue
+        offer = replace(offer, salary_assessment=salary_assessment)
         if required_foreign_languages(offer.title, offer.description):
             result.rejected_language += 1
             continue
@@ -149,11 +177,31 @@ def analyse_descriptions(offers: list[JobOffer]) -> AnalysisResult:
         if profile.manual_share is not None:
             # 100% manual: +5, 50/50: 0, 0% manual: -5.
             score += round((profile.manual_share - 50) / 10)
+        # Próg dopasowania z profilu - dopiero tu, z premią za pracę manualną.
+        if score < MIN_MATCH_SCORE:
+            result.rejected_score += 1
+            continue
         result.offers.append(replace(
             offer, match_score=score, manual_share=profile.manual_share, work_summary=profile.summary
         ))
     result.offers.sort(key=lambda item: (item.match_score, item.work_mode.casefold() == "remote"), reverse=True)
     return result
+
+
+def _complete_from_description(offer: JobOffer) -> JobOffer:
+    """Uzupełnia z opisu pola, których lista ofert nie podała."""
+
+    if not offer.description:
+        return offer
+    work_mode = offer.work_mode
+    if work_mode == "Nie podano":
+        work_mode = normalize_work_mode(offer.description)
+    return replace(
+        offer,
+        salary=offer.salary or extract_salary(offer.description),
+        contract_types=offer.contract_types or normalize_contracts(offer.description),
+        work_mode=work_mode,
+    )
 
 
 # --- Wspólne elementy skryptów stron karier (firmy i budżetówka) -------------

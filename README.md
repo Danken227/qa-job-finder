@@ -38,7 +38,9 @@ strony; dla Pracuj.pl — przez Chromium) i:
 
 Plik `.xlsx` każdego raportu to trwała lista ofert. W pomarańczowej kolumnie
 **Status** wybierasz z listy: Nowa / Obejrzana / CV wysłane / Rozmowa /
-Odrzucona / Nie interesuje mnie. Tytuł w kolumnie **Stanowisko** jest linkiem
+Odrzucona / Nie interesuje mnie / **Błędnie dopasowana** — ten ostatni (czerwone
+tło) oznacza ofertę, która w ogóle nie powinna trafić do raportu (zła
+lokalizacja, tryb pracy, widełki…); to materiał do strojenia filtrów. Tytuł w kolumnie **Stanowisko** jest linkiem
 do oferty (kolumna „Link” jest ukryta — program rozpoznaje po niej oferty).
 
 Status jest wspólny dla tej samej oferty we wszystkich listach (Portale /
@@ -51,6 +53,9 @@ i tytule). Nowe oferty dostają status „Nowa” (zielone tło) i trafiają na
 górę. Oferty z wysłanym CV, odrzucone itp. są wyszarzone. Oferty, których nie
 ma w bieżącym wyszukiwaniu, nie są usuwane — mają „Nie” w kolumnie „W ostatnim
 wyszukiwaniu” i są przekreślone.
+
+Gdy źródło zadziała tylko częściowo (np. LinkedIn ograniczy liczbę zapytań),
+jego oferty nie są oznaczane jako zniknięte, a problem trafia do maila.
 
 **Zamknij plik w Excelu przed uruchomieniem skryptu.** Jeśli będzie otwarty,
 program zapisze kopię `… (kopia RRRR-MM-DD_GGMM).xlsx` i ostrzeże — statusy

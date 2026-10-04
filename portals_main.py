@@ -13,11 +13,21 @@ from pipeline import ReportResult, build_report, configure_console
 REPORTS_DIR = "reports/portals"
 BASENAME = "portals_report"
 SHEET_TAB = "Portale"
+# Nazwa klasy collectora (bez "Collector") -> wartość kolumny "Źródło".
+SOURCE_LABELS = {
+    "JustJoinIt": "JustJoinIT",
+    "NoFluffJobs": "No Fluff Jobs",
+    "RocketJobs": "RocketJobs",
+    "Pracuj": "Pracuj.pl",
+    "LinkedIn": "LinkedIn",
+}
 
 
 def run() -> ReportResult:
     collected = []
     problems: list[str] = []
+    # Źródła, które nie zadziałały w pełni - ich oferty nie są oznaczane jako zniknięte.
+    incomplete: set[str] = set()
     collectors = (
         JustJoinItCollector(),
         NoFluffJobsCollector(),
@@ -32,9 +42,14 @@ def run() -> ReportResult:
         except Exception as error:
             print(f"{source_name}: pominięto źródło ({error}).")
             problems.append(f"{source_name}: źródło nie działa ({error})")
+            incomplete.add(SOURCE_LABELS.get(source_name, source_name))
             continue
         collected.extend(offers)
         print(f"{source_name}: pobrano {len(offers)} ofert.")
+        for warning in getattr(collector, "warnings", []):
+            print(f"UWAGA: {warning}")
+            problems.append(warning)
+            incomplete.add(SOURCE_LABELS.get(source_name, source_name))
         if not offers:
             problems.append(f"{source_name}: 0 ofert - możliwa zmiana strony portalu")
 
@@ -52,6 +67,7 @@ def run() -> ReportResult:
         seniority_exclude=PROFILE.public_seniority_exclude,
         sheet_tab=SHEET_TAB,
         problems=problems,
+        incomplete_sources=incomplete,
     )
 
 

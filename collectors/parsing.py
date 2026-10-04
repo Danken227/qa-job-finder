@@ -56,7 +56,7 @@ def normalize_work_mode(text: str) -> str:
         return "Hybrid"
     if "remote" in normalized or "zdaln" in normalized:
         return "Remote"
-    if "office" in normalized or "stacjonar" in normalized:
+    if any(marker in normalized for marker in ("office", "stacjonar", "on-site", "onsite", "on site", "w biurze")):
         return "Office"
     # "Mobile" tylko jako tryb pracy - "aplikacje mobilne" to przedmiot testów.
     if "praca mobiln" in normalized or "mobile work" in normalized:
@@ -69,11 +69,14 @@ def normalize_contracts(text: str) -> tuple[str, ...]:
     contracts: list[str] = []
     if "b2b" in normalized:
         contracts.append("B2B")
-    if any(value in normalized for value in ("permanent", "uop", "umowa o pracę", "umowa o prace")):
+    if any(value in normalized for value in ("permanent", "uop", "umowa o pracę", "umowa o prace",
+                                              "employment contract", "contract of employment")):
         contracts.append("Permanent")
     if any(value in normalized for value in ("mandate", "umowa zlecenie", " zlecenie")):
         contracts.append("Mandate contract")
-    if any(value in normalized for value in ("contract", "umowa o dzieło", "umowa o dzielo")):
+    # Samo "contract" to zwykle "contract testing" albo "contracts with brands",
+    # a nie rodzaj umowy - uznajemy tylko jednoznaczne nazwy.
+    if any(value in normalized for value in ("umowa o dzieło", "umowa o dzielo", "contract for specific work")):
         contracts.append("Contract")
     return tuple(contracts)
 
@@ -91,7 +94,7 @@ def extract_salary(text: str) -> str:
         flags=re.IGNORECASE,
     )
     if not match:
-        return ""
+        return _salary_without_currency(compact)
 
     # Ogłoszenia publiczne podają "zł" - ujednolicamy do PLN dla oceny widełek.
     salary = re.sub(r"złotych|zł(?!\w)", "PLN", match.group(0), flags=re.IGNORECASE)
@@ -108,6 +111,26 @@ def extract_salary(text: str) -> str:
     if any(marker in unit for marker in ("mies", "month")):
         return f"{amount} /month"
     return f"{amount} /year"
+
+
+# "Wynagrodzenie: od 8000 do 9500 brutto/miesiąc" - kwoty bez waluty, ale
+# z jednoznacznym kontekstem (słowo "wynagrodzenie" i brutto/netto).
+_SALARY_NO_CURRENCY = re.compile(
+    r"(?:wynagrodzeni\w*|salary|pensja|stawka)\W{0,5}[^\d]{0,25}?"
+    r"(?:od\s*)?(\d[\d\s.,]*\d)\s*(?:k\b)?\s*(?:-|–|do|to)\s*(\d[\d\s.,]*\d)\s*(?:k\b)?\s*"
+    r"(brutto|netto|gross|net)\b\s*(?:/|na|per|a)?\s*(miesi\w*|mies\.?|month|godz\w*|h\b|hour|rok\w*|year)?",
+    re.IGNORECASE,
+)
+
+
+def _salary_without_currency(text: str) -> str:
+    match = _SALARY_NO_CURRENCY.search(text)
+    if not match:
+        return ""
+    low, high, kind, unit = match.groups()
+    unit = (unit or "").casefold()
+    suffix = " /h" if unit.startswith(("godz", "h", "hour")) else " /year" if unit.startswith(("rok", "year")) else " /month"
+    return f"{' '.join(low.split())} - {' '.join(high.split())} PLN {kind.casefold()}{suffix}"
 
 
 def normalize_title(title: str) -> str:

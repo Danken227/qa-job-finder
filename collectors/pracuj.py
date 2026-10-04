@@ -151,8 +151,15 @@ DESCRIPTION_SECTIONS = ("about-project", "technologies", "responsibilities", "re
                         "development-practices", "training-space", "work-organization")
 
 
+EXPIRED_MARKERS = ("offer expired", "oferta wygasła", "ogłoszenie wygasło", "oferta nieaktualna")
+EXPIRED = "__EXPIRED__"
+
+
 def fetch_descriptions(urls: list[str]) -> dict[str, str]:
     """Pełne opisy ofert Pracuj.pl (sekcje strony) - adres -> tekst.
+
+    Dla ofert wygasłych ("offer expired 2 days ago") zwraca ``EXPIRED`` -
+    strona wciąż działa, ale aplikować już się nie da.
 
     Strona oferty też jest za Cloudflare, więc jak przy wyszukiwaniu: Chromium
     bez okna i nowa sesja dla każdej strony. Błędy pojedynczych stron pomijamy.
@@ -180,6 +187,11 @@ def fetch_descriptions(urls: list[str]) -> dict[str, str]:
                     continue
                 finally:
                     context.close()
+                # Napis "offer expired 2 days ago" jest pod tytułem oferty.
+                page_text = soup.get_text(" ", strip=True).casefold()
+                if any(marker in page_text for marker in EXPIRED_MARKERS):
+                    descriptions[url] = EXPIRED
+                    continue
                 parts = [
                     section.get_text(" ", strip=True)
                     for name in DESCRIPTION_SECTIONS
