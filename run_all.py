@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -45,7 +46,18 @@ def main() -> None:
         default=(),
         help="Pomiń wybrane źródła.",
     )
+    parser.add_argument(
+        "--log",
+        metavar="PLIK",
+        help="Zapisz cały wynik do pliku (dla Harmonogramu zadań, który uruchamia skrypt bez okna).",
+    )
     args = parser.parse_args()
+    if args.log:
+        # pythonw.exe nie ma konsoli - wynik i błędy idą do pliku logu.
+        log_path = Path(args.log)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(log_path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115
+        print(f"Start: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     tiers = tuple(args.tiers)
 
     steps = (
