@@ -145,3 +145,16 @@ def test_portal_source_labels_match_collectors():
     names = {cls.__name__.replace("Collector", "") for cls in
              (JustJoinItCollector, NoFluffJobsCollector, RocketJobsCollector, PracujCollector, LinkedInCollector)}
     assert names == set(portals_main.SOURCE_LABELS)
+
+
+def test_same_offer_under_two_company_names_is_one_row():
+    # Regresja (Luxoft): "Luxoft" i "Luxoft Poland" publikują tę samą ofertę na LinkedIn.
+    previous = [
+        row("Luxoft", "Senior Manual QA Engineer", "https://li/1", first="2026-10-12"),
+        row("Luxoft Poland", "Senior Manual QA Engineer", "https://li/2", status="CV wysłane", first="2026-10-10"),
+    ]
+    rows, new = report._merge(previous, [current("Luxoft Poland", "Senior Manual QA Engineer", "https://li/3")],
+                              "2026-10-13")
+    assert len(rows) == 1 and new == []
+    assert rows[0]["Status"] == "CV wysłane"
+    assert rows[0]["Pierwsze wykrycie"] == "2026-10-10"

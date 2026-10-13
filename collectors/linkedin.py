@@ -6,6 +6,7 @@ użytkowników. Nie wymaga konta ani nie omija ograniczeń dostępu.
 
 from __future__ import annotations
 
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -131,7 +132,7 @@ class LinkedInCollector(BaseCollector):
             work_mode="Remote" if remote_only and not extract_cities(location) else "Nie podano",
             contract_types=(),
             salary="",
-            url=direct_url(link["href"]),
+            url=_canonical_url(link["href"]),
             source="LinkedIn",
             expires_in=(card.select_one("time").get("datetime", "") if card.select_one("time") else ""),
         )
@@ -162,3 +163,11 @@ class LinkedInCollector(BaseCollector):
             salary=extract_salary(description),
             skills=extract_skills(description),
         )
+
+
+def _canonical_url(href: str) -> str:
+    """https://pl.linkedin.com/jobs/view/tytul-at-firma-4471617498?trk=... ->
+    https://www.linkedin.com/jobs/view/4471617498 - jedna oferta, jeden adres."""
+
+    match = re.search(r"/jobs/view/(?:[^/?]*?-)?(\d{6,})", href)
+    return f"https://www.linkedin.com/jobs/view/{match.group(1)}" if match else direct_url(href)

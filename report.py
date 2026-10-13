@@ -27,7 +27,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from collectors.base import JobOffer
-from collectors.parsing import fold_text, normalize_title
+from collectors.parsing import company_core, normalize_title
 
 STATUS_NEW = "Nowa"
 # "Błędnie dopasowana" - oferta nie powinna była trafić do raportu (zła
@@ -44,12 +44,6 @@ REPORT_TABS = {
     "Portale": Path("reports/portals/portals_report.xlsx"),
     "Firmy": Path("reports/companies/company_report.xlsx"),
     "Budżetówka": Path("reports/public/public_report.xlsx"),
-}
-# Formy prawne i dopiski pomijane przy porównywaniu nazw firm między źródłami.
-COMPANY_NOISE = {
-    "sp", "z", "o", "oo", "s", "a", "sa", "spolka", "ograniczona", "odpowiedzialnoscia", "akcyjna",
-    "komandytowa", "k", "sk", "polska", "poland", "pl", "group", "grupa", "gmbh", "inc", "ltd", "llc",
-    "plc", "ag", "bv", "corp", "corporation", "co",
 }
 
 USER_COLUMNS = ("Status",)
@@ -204,19 +198,37 @@ def _to_row(offer: JobOffer) -> dict[str, str]:
 # --- Scalanie z poprzednim raportem ------------------------------------------
 
 def _key(row: dict[str, str]) -> tuple[str, str]:
-    return (str(row.get("Firma", "")).casefold().strip(), normalize_title(str(row.get("Stanowisko", ""))))
-
-
-def company_core(name: str) -> str:
-    """'Sii Polska Sp. z o.o.' -> 'sii' - do porównań nazw firm między źródłami."""
-
-    tokens = [token for token in re.split(r"[^a-z0-9]+", fold_text(name)) if token]
-    core = [token for token in tokens if token not in COMPANY_NOISE]
-    return " ".join(core or tokens)
-
-
-def _shared_key(row: dict[str, str]) -> tuple[str, str]:
+    # Rdzeń nazwy firmy: "Luxoft" i "Luxoft Poland" publikują te same oferty.
     return company_core(str(row.get("Firma", ""))), normalize_title(str(row.get("Stanowisko", "")))
+
+
+_shared_key = _key
+
+
+def _collapse_duplicates(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Scala wiersze tej samej oferty (np. "Luxoft" i "Luxoft Poland").
+
+    Zostaje wiersz aktywny z bardziej zaawansowanym statusem; data pierwszego
+    wykrycia - najwcześniejsza z duplikatów.
+    """
+
+    best: dict[tuple[str, str], dict[str, str]] = {}
+    for row in rows:
+        key = _key(row)
+        current = best.get(key)
+        if current is None:
+            best[key] = row
+            continue
+        first_seen = min(filter(None, (current.get("Pierwsze wykrycie"), row.get("Pierwsze wykrycie"))), default="")
+        rank = lambda item: (item.get("W ostatnim wyszukiwaniu") == "Tak", _status_rank(item.get("Status", "")))  # noqa: E731
+        winner = row if rank(row) > rank(current) else current
+        if _status_rank(row.get("Status", "")) > _status_rank(winner.get("Status", "")):
+            winner["Status"] = row["Status"]
+        if _status_rank(current.get("Status", "")) > _status_rank(winner.get("Status", "")):
+            winner["Status"] = current["Status"]
+        winner["Pierwsze wykrycie"] = first_seen
+        best[key] = winner
+    return list(best.values())
 
 
 def _status_rank(status: str) -> int:
@@ -317,6 +329,7 @@ def _merge(
 
     # Najpierw najnowsze wykrycia, potem (sortowanie stabilne) aktywne i
     # niezałatwione na górze.
+    rows = _collapse_duplicates(rows)
     for row in rows:
         other = (shared or {}).get(row.get("Link", "")) or (shared or {}).get(_shared_key(row), "")
         if _status_rank(other) > _status_rank(row.get("Status", "")):

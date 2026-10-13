@@ -71,3 +71,9 @@ def test_salary_with_unknown_contract_is_inferred(make_offer):
     b2b_ok, _ = _assess_salary(make_offer(salary="130 - 160 PLN netto /h"))
     assert not uop_low and "UoP" in note
     assert b2b_ok
+
+
+def test_deduplicate_ignores_country_suffix_in_company_name(make_offer):
+    luxoft = make_offer(company="Luxoft", title="Senior Manual QA Engineer", url="https://x/1")
+    luxoft_pl = make_offer(company="Luxoft Poland", title="Senior Manual QA Engineer", url="https://x/2")
+    assert len(deduplicate_offers([luxoft, luxoft_pl])) == 1

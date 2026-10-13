@@ -172,3 +172,12 @@ def test_linkedin_remote_filter_trusted_only_for_country_wide_location(location,
 
     card = BeautifulSoup(LINKEDIN_CARD.format(location=location), "lxml").select_one("div.job-search-card")
     assert LinkedInCollector._parse_card(card, remote_only).work_mode == expected
+
+
+def test_linkedin_canonical_url():
+    from collectors.linkedin import _canonical_url
+
+    assert _canonical_url("https://pl.linkedin.com/jobs/view/senior-manual-qa-at-luxoft-poland-4471617498?trk=x") == \
+        "https://www.linkedin.com/jobs/view/4471617498"
+    assert _canonical_url("https://www.linkedin.com/jobs/view/4375355925/?trackingId=abc") == \
+        "https://www.linkedin.com/jobs/view/4375355925"

@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 
 from analysis import required_foreign_languages
 from collectors.base import JobOffer
-from collectors.parsing import contains_keyword, fold_text, normalize_title
+from collectors.parsing import company_core, contains_keyword, fold_text, normalize_title
 from config.settings import (
     CANDIDATES_FOR_VERIFICATION,
     MIN_B2B,
@@ -44,7 +44,8 @@ def deduplicate_offers(offers: list[JobOffer]) -> list[JobOffer]:
 
     best: dict[tuple[str, str], JobOffer] = {}
     for offer in offers:
-        key = (offer.company.casefold().strip(), normalize_title(offer.title))
+        # Rdzeń nazwy firmy - "Luxoft" i "Luxoft Poland" to ta sama oferta.
+        key = (company_core(offer.company), normalize_title(offer.title))
         existing = best.get(key)
         if existing is None or _offer_richness(offer) > _offer_richness(existing):
             best[key] = offer

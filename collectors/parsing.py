@@ -133,6 +133,25 @@ def _salary_without_currency(text: str) -> str:
     return f"{' '.join(low.split())} - {' '.join(high.split())} PLN {kind.casefold()}{suffix}"
 
 
+# Formy prawne i dopiski pomijane przy porównywaniu nazw firm między źródłami.
+COMPANY_NOISE = {
+    "sp", "z", "o", "oo", "s", "a", "sa", "spolka", "ograniczona", "odpowiedzialnoscia", "akcyjna",
+    "komandytowa", "k", "sk", "polska", "poland", "pl", "group", "grupa", "gmbh", "inc", "ltd", "llc",
+    "plc", "ag", "bv", "corp", "corporation", "co",
+}
+
+
+def company_core(name: str) -> str:
+    """'Sii Polska Sp. z o.o.' -> 'sii', 'Luxoft Poland' -> 'luxoft'.
+
+    Do porównań nazw firm: ta sama firma publikuje oferty pod różnymi nazwami.
+    """
+
+    tokens = [token for token in re.split(r"[^a-z0-9]+", fold_text(name)) if token]
+    core = [token for token in tokens if token not in COMPANY_NOISE]
+    return " ".join(core or tokens)
+
+
 def normalize_title(title: str) -> str:
     """Ujednolica tytuł do porównań (deduplikacja, fuzzy match w weryfikacji)."""
 
