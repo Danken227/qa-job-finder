@@ -113,3 +113,18 @@ def test_salary_without_currency_and_contract_words():
     # "contract testing" / "contracts with brands" to nie rodzaj umowy.
     assert normalize_contracts("integration and contract testing; Contracts with the biggest brands") == ()
     assert normalize_contracts("Umowa o pracę lub B2B") == ("B2B", "Permanent")
+
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Regresja (NFJ 19.10): spacja po ukośniku gubiła jednostkę - stawka godzinowa
+        # liczona jak miesięczna odrzucała wszystkie oferty B2B godzinowe.
+        ("110– 120PLN/ godz.", "110– 120PLN /h"),
+        ("12 000– 15 000PLN/ mies.", "12 000– 15 000PLN /month"),
+        ("960 – 1 150 PLN / dzień", "960 – 1 150 PLN /day"),
+    ],
+)
+def test_salary_units_with_space_after_slash_and_daily_rate(text, expected):
+    assert extract_salary(text) == expected

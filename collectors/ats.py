@@ -212,6 +212,10 @@ def in_target_country(location: str) -> bool:
 def _offer(company: Company, board: AtsBoard, *, title: str, url: str, location: str = "",
            work_mode: str = "Nie podano", description: str = "", contracts: tuple[str, ...] = (),
            salary: str = "") -> JobOffer:
+    # API systemów rekrutacyjnych zwracają czasem null zamiast tekstu - jedno
+    # takie pole nie może przerwać skanowania (regresja: Recruitee, 19.10).
+    title, url, location = str(title or ""), str(url or ""), str(location or "")
+    description, salary = str(description or ""), str(salary or "")
     text = BeautifulSoup(unescape(description), "lxml").get_text(" ", strip=True) if description else ""
     if work_mode == "Nie podano":
         work_mode = normalize_work_mode(f"{location} {title}")
@@ -286,7 +290,7 @@ def _lever(session, board, company, keywords):
             url=job.get("hostedUrl", ""),
             location="; ".join(location for location in locations if location),
             work_mode=work_mode_from_flags(workplace == "remote", workplace == "hybrid"),
-            description=job.get("descriptionPlain", "") + " " + (categories.get("commitment") or ""),
+            description=f'{job.get("descriptionPlain") or ""} {categories.get("commitment") or ""}',
             salary=salary,
         ))
     return offers
@@ -467,8 +471,9 @@ def _recruitee(session, board, company, keywords):
             url=job.get("careers_url", ""),
             location=", ".join(part for part in (job.get("city"), job.get("country")) if part),
             work_mode=work_mode_from_flags(bool(job.get("remote")), bool(job.get("hybrid"))),
-            description=job.get("description", "") + " " + job.get("requirements", ""),
-            contracts=normalize_contracts(job.get("employment_type_code", "")),
+            # Pola bywają null w API (regresja: "requirements": null przerywało cały przebieg).
+            description=f'{job.get("description") or ""} {job.get("requirements") or ""}',
+            contracts=normalize_contracts(job.get("employment_type_code") or ""),
         )
         for job in payload.get("offers", [])
     ]

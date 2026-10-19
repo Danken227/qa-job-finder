@@ -185,6 +185,10 @@ def _assess_salary(offer: JobOffer) -> tuple[bool, str]:
     per_hour = "/h" in salary_text or "/hour" in salary_text
     if "/year" in salary_text:
         maximum /= 12
+    if "/day" in salary_text:
+        # Stawka dzienna (np. "960 – 1 150 PLN / dzień") - dzień = 8 godzin.
+        maximum /= 8
+        per_hour = True
     if not has_b2b and not has_uop:
         # Umowa nieznana - wnioskujemy z widełek: stawka godzinowa albo netto
         # (+VAT) to zwykle B2B, miesięczne brutto - umowa o pracę. Wcześniej

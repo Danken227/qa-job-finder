@@ -47,7 +47,7 @@ FULLY_REMOTE = ("100% remote", "fully remote", "full remote", "full-remote", "re
 
 
 def normalize_work_mode(text: str) -> str:
-    normalized = text.casefold()
+    normalized = (text or "").casefold()  # API bywają z polami null
     # Kolejność ma znaczenie: "model hybrydowy (3 dni stacjonarnie, 2 dni
     # zdalnie)" to praca hybrydowa, choć pada w nim słowo "zdalnie".
     if any(marker in normalized for marker in FULLY_REMOTE):
@@ -65,7 +65,7 @@ def normalize_work_mode(text: str) -> str:
 
 
 def normalize_contracts(text: str) -> tuple[str, ...]:
-    normalized = text.casefold()
+    normalized = (text or "").casefold()  # API bywają z polami null
     contracts: list[str] = []
     if "b2b" in normalized:
         contracts.append("B2B")
@@ -89,7 +89,8 @@ def extract_salary(text: str) -> str:
         r"(?:\d[\d\s,.]*\s*(?:-|–|do)\s*)?\d[\d\s,.]*\s*"
         r"(?:PLN|EUR|USD|CHF|zł|złotych)(?!\w)(?:\s*(?:\+\s*VAT|netto|net|brutto))?"
         # Granica słowa po jednostce: "PLN hybrid" to nie stawka godzinowa.
-        r"(?:\s*(?:/|na\s*)?(?:h|godz\.?|godzinę|godzinowo|hour|mies\.?|miesięcznie|month|rocznie|rok|year)(?!\w))?",
+        # "/ godz." ze spacją po ukośniku (nowe karty NFJ) i stawki dzienne.
+        r"(?:\s*(?:/\s*|na\s*|per\s*)?(?:h|godz\.?|godzinę|godzinowo|hour|dzień|dzien|dniówka|day|mies\.?|miesięcznie|month|rocznie|rok|year)(?!\w))?",
         compact,
         flags=re.IGNORECASE,
     )
@@ -99,15 +100,17 @@ def extract_salary(text: str) -> str:
     # Ogłoszenia publiczne podają "zł" - ujednolicamy do PLN dla oceny widełek.
     salary = re.sub(r"złotych|zł(?!\w)", "PLN", match.group(0), flags=re.IGNORECASE)
     unit_match = re.search(
-        r"\s*(?:/|na\s*)?(?:h|godz\.?|godzinę|godzinowo|hour|mies\.?|miesięcznie|month|rocznie|rok|year)$",
+        r"\s*(?:/\s*|na\s*|per\s*)?(?:h|godz\.?|godzinę|godzinowo|hour|dzień|dzien|dniówka|day|mies\.?|miesięcznie|month|rocznie|rok|year)$",
         salary,
         flags=re.IGNORECASE,
     )
     if not unit_match:
         return salary
     amount, unit = salary[: unit_match.start()].rstrip(), unit_match.group(0).casefold()
-    if any(marker in unit for marker in ("godz", "hour")) or unit.strip(" /na") == "h":
+    if any(marker in unit for marker in ("godz", "hour")) or unit.strip(" /nape") == "h":
         return f"{amount} /h"
+    if any(marker in unit for marker in ("dzie", "dniów", "day")):
+        return f"{amount} /day"
     if any(marker in unit for marker in ("mies", "month")):
         return f"{amount} /month"
     return f"{amount} /year"

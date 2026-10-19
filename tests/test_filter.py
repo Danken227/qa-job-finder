@@ -77,3 +77,12 @@ def test_deduplicate_ignores_country_suffix_in_company_name(make_offer):
     luxoft = make_offer(company="Luxoft", title="Senior Manual QA Engineer", url="https://x/1")
     luxoft_pl = make_offer(company="Luxoft Poland", title="Senior Manual QA Engineer", url="https://x/2")
     assert len(deduplicate_offers([luxoft, luxoft_pl])) == 1
+
+
+
+def test_daily_and_hourly_rates_are_assessed_per_hour(make_offer):
+    # Profil testowy: B2B min 80 zł/h, preferowane 110 zł/h.
+    daily_ok, note = _assess_salary(make_offer(salary="960 - 1 150 PLN /day"))  # ok. 144 zł/h
+    hourly_low, _ = _assess_salary(make_offer(salary="50 - 70 PLN /h"))
+    assert daily_ok and "B2B" in note
+    assert not hourly_low

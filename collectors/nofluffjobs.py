@@ -58,23 +58,25 @@ class NoFluffJobsCollector(BaseCollector):
 
     @staticmethod
     def _parse_card(card) -> JobOffer | None:
-        title_element = card.select_one("h3")
-        company_element = card.select_one("h4.company-name")
-        if title_element is None or company_element is None:
+        # Pola karty po atrybutach data-cy - klasy CSS (Tailwind) zmieniają się
+        # przy każdym wdrożeniu NFJ (regresja: zniknęło h4.company-name).
+        title_element = card.select_one("[data-cy='title position on the job offer listing']") or card.select_one("h3")
+        if title_element is None:
             return None
 
         card_text = " ".join(card.stripped_strings)
         title = title_element.get_text(" ", strip=True).replace("NOWA", "").strip()
-        company = company_element.get_text(" ", strip=True)
         salary_element = card.select_one("[data-cy='salary ranges on the job offer listing']")
         salary = extract_salary(salary_element.get_text(" ", strip=True) if salary_element else "")
+        location_element = card.select_one("[data-cy='location on the job offer listing']")
+        location_text = location_element.get_text(" ", strip=True) if location_element else card_text
         location = PROFILE.preferred_city if PROFILE.preferred_city.casefold() in card_text.casefold() else "Remote"
 
         return JobOffer(
-            company=company,
+            company=_company_name(card),
             title=title,
             location=location,
-            work_mode=normalize_work_mode(card_text),
+            work_mode=normalize_work_mode(location_text),
             contract_types=normalize_contracts(card_text),
             salary=salary,
             url=urljoin(BASE_URL, card["href"]),
@@ -95,9 +97,20 @@ class NoFluffJobsCollector(BaseCollector):
         from verification import page_description
 
         description = page_description(response.text, offer.title)
+        company = offer.company
+        if company == "Nie podano":
+            # Zapasowo: nazwa firmy z danych strukturalnych strony oferty.
+            from .parsing import parse_json_ld_jobs
+
+            for posting in parse_json_ld_jobs(response.text):
+                organization = posting.get("hiringOrganization") or {}
+                if isinstance(organization, dict) and organization.get("name"):
+                    company = str(organization["name"])
+                    break
         work_mode = offer.work_mode if offer.work_mode != "Nie podano" else normalize_work_mode(description)
         return replace(
             offer,
+            company=company,
             description=description,
             work_mode=work_mode,
             contract_types=offer.contract_types or normalize_contracts(description),
@@ -105,3 +118,20 @@ class NoFluffJobsCollector(BaseCollector):
             salary=offer.salary or extract_salary(description),
             skills=tuple(dict.fromkeys((*offer.skills, *extract_skills(description)))),
         )
+
+
+def _company_name(card) -> str:
+    """Nazwa firmy: span.tw-truncate poza blokami oznaczonymi data-cy
+    (te same klasy mają elementy w widełkach i lokalizacji)."""
+
+    legacy = card.select_one("h4.company-name")
+    if legacy is not None:
+        return legacy.get_text(" ", strip=True)
+    for span in card.select("span.tw-truncate"):
+        inside_field = any(parent.get("data-cy") for parent in span.parents if parent is not card and parent.name)
+        if span.get("data-cy") or inside_field:
+            continue
+        text = span.get_text(" ", strip=True)
+        if text:
+            return text
+    return "Nie podano"

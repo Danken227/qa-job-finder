@@ -36,6 +36,7 @@ MAX_PAGES = 5
 POSTED_WITHIN = "r2592000"  # 30 dni w sekundach (14 dni gubiło aktywne, starsze oferty)
 PAGE_DELAY_SECONDS = 1.5
 RATE_LIMIT_WAIT_SECONDS = 30
+DETAIL_DELAY_SECONDS = 0.7
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; qa-job-finder/1.0; +https://github.com/Danken227/qa-job-finder)",
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
@@ -79,15 +80,17 @@ class LinkedInCollector(BaseCollector):
 
         if not offers:
             raise RuntimeError("LinkedIn returned no public job cards; the endpoint may have changed.")
-        if self.rate_limited:
-            self.warnings.append("LinkedIn ograniczył liczbę zapytań - wyniki z LinkedIn mogą być niepełne")
 
         # Szczegóły (opis: tryb pracy, widełki, umiejętności) tylko dla ofert
         # z pasującym tytułem - setki zapytań o resztę groziłyby blokadą.
         keywords = (*PROFILE.title_keywords, *PROFILE.public_title_keywords)
         relevant = [offer for offer in offers.values() if contains_keyword(offer.title, keywords)]
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            return list(executor.map(self._enrich_offer, relevant))
+        # 2 wątki z przerwą - 4 wątki bez przerwy wywoływały limit zapytań (429).
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            enriched = list(executor.map(self._enrich_offer, relevant))
+        if self.rate_limited:
+            self.warnings.append("LinkedIn ograniczył liczbę zapytań - wyniki z LinkedIn mogą być niepełne")
+        return enriched
 
     rate_limited = False
     blocked = False
@@ -138,8 +141,11 @@ class LinkedInCollector(BaseCollector):
         )
 
     def _enrich_offer(self, offer: JobOffer) -> JobOffer:
+        time.sleep(DETAIL_DELAY_SECONDS)
         try:
             response = requests.get(offer.url, headers=REQUEST_HEADERS, timeout=20)
+            if response.status_code == 429:
+                self.rate_limited = True
             response.raise_for_status()
         except requests.RequestException:
             return offer

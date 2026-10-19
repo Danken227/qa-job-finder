@@ -27,6 +27,10 @@ from pipeline import analyse_descriptions
                         "You will design test cases and report bugs in Jira. " * 4, []),
         ("Tester oprogramowania", "Szukamy testera do zespołu. Będziesz tworzyć przypadki testowe "
                                   "i zgłaszać błędy w Jira. " * 4, []),
+        # Benefit, nie wymaganie (regresja: Łukasiewicz, 19.10).
+        ("Specjalista ds. QA", "Oferujemy: darmowe kursy językowe (angielski, hiszpański, niemiecki, włoski) "
+                               "dla wszystkich pracowników.", []),
+        ("Tester", "Benefits: free German and Spanish language classes.", []),
         # Przełącznik języka strony z nagłówka (fałszywy alarm na stronie Eviden).
         ("Tester with Tosca", "Skip to main content Language English (United States) Français (France) "
                               "Sign in. Requirements: Tosca, English B2.", []),

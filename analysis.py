@@ -51,6 +51,11 @@ OPTIONAL_MARKERS = (
     "mile widzian", "nice to have", "nice-to-have", "a plus", "is a plus", "will be a plus",
     "advantage", "atut", "dodatkow", "preferred but", "optional", "opcjonaln", "bonus",
 )
+# Benefit, nie wymaganie: "darmowe kursy językowe (angielski, niemiecki, włoski)".
+LEARNING_MARKERS = (
+    "kurs", "course", "lekcj", "lesson", "zajecia", "classes", "nauka", "nauki", "learning", "szkoleni",
+    "training", "dofinansowan", "platform",
+)
 CONTEXT_WINDOW = 80
 # Przełącznik języka strony ("Language: English (United States), Français
 # (France)") to nie wymaganie oferty.
@@ -133,6 +138,8 @@ def _required_in_text(text: str, stem: str) -> bool:
             if not any(marker in window for marker in LANGUAGE_CONTEXT):
                 continue
             if any(marker in window for marker in OPTIONAL_MARKERS):
+                continue
+            if any(marker in window for marker in LEARNING_MARKERS):
                 continue
             return True
     return False

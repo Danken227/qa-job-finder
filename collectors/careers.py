@@ -298,6 +298,16 @@ class CareerPagesCollector(BaseCollector):
     # --- Skanowanie jednej firmy ------------------------------------------
 
     def _scan_company(self, company: Company) -> CompanyScan:
+        """Skan jednej firmy; nieoczekiwany błąd trafia do jej wyniku, a nie przerywa całości."""
+
+        try:
+            return self._scan_company_unsafe(company)
+        except Exception as error:  # noqa: BLE001 - jedna firma nie może zatrzymać 99 pozostałych
+            scan = CompanyScan(company)
+            scan.error, scan.error_kind = f"błąd programu: {type(error).__name__}: {error}", "technical"
+            return scan
+
+    def _scan_company_unsafe(self, company: Company) -> CompanyScan:
         scan = CompanyScan(company)
         boards: dict[str, AtsBoard] = {}
         for spec in company.ats:
@@ -330,7 +340,7 @@ class CareerPagesCollector(BaseCollector):
         for board in scan.boards:
             try:
                 scan.add(board.type, fetch_board(self.session, board, company, self.title_keywords))
-            except (requests.RequestException, ValueError, KeyError) as error:
+            except Exception as error:  # noqa: BLE001 - błąd jednej firmy nie może zatrzymać pozostałych
                 scan.warnings.append(f"ATS {board.label} niedostępny ({_describe_error(error)})")
         return scan
 
@@ -432,7 +442,7 @@ class CareerPagesCollector(BaseCollector):
                 for board in boards.values():
                     try:
                         scan.add(board.type, fetch_board(self.session, board, scan.company, self.title_keywords))
-                    except (requests.RequestException, ValueError, KeyError) as error:
+                    except Exception as error:  # noqa: BLE001 - błąd jednej firmy nie zatrzymuje pozostałych
                         scan.warnings.append(f"ATS {board.label} niedostępny ({_describe_error(error)})")
                 scan.boards = list(boards.values())
             browser.close()

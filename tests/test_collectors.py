@@ -181,3 +181,49 @@ def test_linkedin_canonical_url():
         "https://www.linkedin.com/jobs/view/4471617498"
     assert _canonical_url("https://www.linkedin.com/jobs/view/4375355925/?trackingId=abc") == \
         "https://www.linkedin.com/jobs/view/4375355925"
+
+
+
+def test_recruitee_offer_with_null_fields_does_not_crash():
+    # Regresja (19.10): "requirements": null przerywało skanowanie wszystkich firm.
+    from collectors import ats
+    from config.companies_loader import Company
+
+    class Session:
+        def get(self, *args, **kwargs):
+            class Response:
+                status_code = 200
+
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {"offers": [{"title": "Manual QA Tester", "careers_url": "https://x.recruitee.com/o/qa",
+                                        "city": "Wrocław", "country": "Poland", "description": None,
+                                        "requirements": None, "employment_type_code": None}]}
+            return Response()
+
+    board = ats.AtsBoard("recruitee", "x")
+    offers = ats.fetch_board(Session(), board, Company("X", "https://x", ("x",)), ("tester",))
+    assert [offer.title for offer in offers] == ["Manual QA Tester"]
+
+
+NFJ_CARD = """
+<a class="posting-list-item" href="/pl/job/automation-tester-qa-java-scalo-remote-2">
+  <h3 data-cy="title position on the job offer listing"> Automation Tester/QA (Java) </h3>
+  <span data-cy="contract type on the job offer listing">B2B</span>
+  <span data-cy="salary ranges on the job offer listing"><span class="tw-truncate">110– 120PLN/ godz.</span></span>
+  <div><span class="tw-truncate">Scalo</span></div>
+  <span class="tw-truncate" data-cy="location on the job offer listing">Zdalnie +1</span>
+</a>
+"""
+
+
+def test_nofluffjobs_card_new_layout():
+    # Regresja (19.10): NFJ usunął h4.company-name - collector nie odczytywał żadnej karty.
+    from collectors.nofluffjobs import NoFluffJobsCollector
+
+    card = BeautifulSoup(NFJ_CARD, "lxml").select_one("a.posting-list-item")
+    offer = NoFluffJobsCollector._parse_card(card)
+    assert (offer.company, offer.title, offer.work_mode) == ("Scalo", "Automation Tester/QA (Java)", "Remote")
+    assert offer.salary.endswith("/h")
